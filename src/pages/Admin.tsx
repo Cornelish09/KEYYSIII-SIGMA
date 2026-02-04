@@ -104,23 +104,16 @@ export function Admin() {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        // --- LOGIKA KOMPRESI ---
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
 
-        // Maksimal lebar/tinggi 800px biar enteng tapi tetep tajam
-        const MAX_SIZE = 800;
+        // Paksa ukuran maksimal 600px biar super enteng & fast respon
+        const MAX_SIZE = 600; 
         if (width > height) {
-          if (width > MAX_SIZE) {
-            height *= MAX_SIZE / width;
-            width = MAX_SIZE;
-          }
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
         } else {
-          if (height > MAX_SIZE) {
-            width *= MAX_SIZE / height;
-            height = MAX_SIZE;
-          }
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
         }
 
         canvas.width = width;
@@ -128,8 +121,8 @@ export function Admin() {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
 
-        // Kompres ke JPEG kualitas 0.6 (60%)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        // Kompres kualitas ke 0.5 (50%) - Dijamin kenceng kirimnya
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         callback(dataUrl);
       };
       img.src = event.target?.result as string;

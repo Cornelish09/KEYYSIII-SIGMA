@@ -40,23 +40,24 @@ export default function App() {
   React.useEffect(() => {
     const docRef = doc(db, "configs", "main-config");
     
+    // Paksa ambil data cloud SEGERA saat app dibuka
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data() as ContentConfig;
-        console.log("☁️ Data Firebase masuk!");
         
-        // Update state biar tampilan berubah langsung
-        setCfg(cloudData);
-        
-        // ✅ INI YANG BIKIN HP LO SINKRON:
-        // Simpan ke local storage supaya pas di-refresh data barunya tetep ada
-        saveConfig(cloudData); 
-        
-        // Kasih notifikasi biar lo tau di HP kalau datanya masuk
-        if(window.location.pathname !== "/admin") {
-           console.log("Sync Success!");
-        }
+        // Cek apakah data cloud beda sama yang di memori HP
+        // Kalau beda, langsung ganti tampilan
+        setCfg(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(cloudData)) {
+             console.log("⚡ Syncing Cloud to UI...");
+             saveConfig(cloudData); // Update memori HP
+             return cloudData;
+          }
+          return prev;
+        });
       }
+    }, (error) => {
+      console.error("Firebase Error:", error);
     });
 
     return () => unsubscribe();
