@@ -1,3 +1,5 @@
+import { db } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
 import React from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import "./styles.css";
@@ -40,6 +42,17 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
+  // Tambahin useEffect ini di bawahnya:
+  React.useEffect(() => {
+    const syncFirebase = async () => {
+      const docRef = doc(db, "configs", "main-config");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setCfg(docSnap.data() as ContentConfig);
+      }
+    };
+    syncFirebase();
+  }, []);
   const loc = useLocation();
   const nav = useNavigate();
 
