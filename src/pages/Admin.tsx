@@ -1,3 +1,5 @@
+import { db } from "../firebase"; // Panggil koneksi firebase lo
+import { doc, setDoc } from "firebase/firestore"; // Panggil fungsi buat nulis data
 import React, { useState, useEffect } from "react";
 import type { ContentConfig, Place, Outfit } from "../lib/types";
 import { loadConfig, saveConfig, resetConfig, clearLogs } from "../lib/storage";
@@ -34,10 +36,23 @@ export function Admin() {
   };
 
   // --- SAVE LOGIC ---
-  const handleSave = () => {
-    saveConfig(cfg);
-    setSaveStatus("saved");
-    setTimeout(() => setSaveStatus("idle"), 2000); 
+  const handleSave = async () => {
+    try {
+      // 1. Tetap simpan lokal buat jaga-jaga
+      saveConfig(cfg); 
+
+      // 2. KIRIM KE FIREBASE (Ini yang bikin ONLINE!)
+      // Kita simpan semua kodingan lo ke dalam satu dokumen bernama 'main-config'
+      await setDoc(doc(db, "configs", "main-config"), cfg);
+
+      setSaveStatus("saved");
+      logEvent("settings_updated", { tab: activeTab });
+      setTimeout(() => setSaveStatus("idle"), 2000);
+      alert("Data BERHASIL dikirim ke Firebase (Online)!");
+    } catch (error) {
+      console.error("Error saving to Firebase:", error);
+      alert("Gagal kirim ke Firebase. Cek Rules lo!");
+    }
   };
 
   const updateConfig = (newCfg: ContentConfig) => {
