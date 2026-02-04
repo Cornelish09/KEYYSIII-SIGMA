@@ -1,0 +1,1095 @@
+:root{
+  --bg0:#070913;
+  --bg1:#0b0f23;
+  --card:#0e1430;
+  --card2:#0b1026;
+  --text:#eaf0ff;
+  --muted:rgba(234,240,255,.72);
+  --muted2:rgba(234,240,255,.55);
+  --line:rgba(234,240,255,.12);
+  --glow: rgba(160, 130, 255, .40);
+  --glow2: rgba(255, 140, 200, .30);
+  --ok:#7CFFB2;
+  --bad:#FF7C9B;
+  --warn:#ffd27c;
+  --shadow: 0 18px 50px rgba(0,0,0,.35);
+  --radius: 18px;
+  --radius2: 26px;
+  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+*{box-sizing:border-box}
+html, body{height:100%}
+body{
+  margin:0;
+  font-family:var(--font);
+  color:var(--text);
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(144, 103, 255, .25), transparent 60%),
+    radial-gradient(1000px 700px at 85% 20%, rgba(255, 107, 210, .18), transparent 55%),
+    radial-gradient(900px 600px at 70% 90%, rgba(110, 255, 210, .12), transparent 55%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+  overflow-x:hidden;
+}
+
+a{color:inherit}
+button, input, textarea, select{font: inherit}
+
+.container{
+  width:min(1040px, 92vw);
+  margin: 0 auto;
+  padding: 22px 0 56px;
+}
+
+.topbar{
+  position: sticky;
+  top:0;
+  z-index: 30;
+  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(7,9,19,.86), rgba(7,9,19,.45));
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-inner{
+  width:min(1040px, 92vw);
+  margin:0 auto;
+  padding: 14px 0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  text-decoration:none;
+}
+.brand-badge{
+  width:40px;height:40px;
+  border-radius: 12px;
+  background:
+    radial-gradient(18px 18px at 30% 30%, rgba(255,255,255,.9), transparent 60%),
+    linear-gradient(135deg, rgba(160,130,255,.9), rgba(255,130,190,.75));
+  box-shadow: 0 10px 26px rgba(160,130,255,.25);
+}
+.brand-title{font-weight:800; letter-spacing:.2px}
+.brand-sub{font-size:12px;color:var(--muted2); margin-top:2px}
+
+.row{display:flex; gap:14px; align-items:center}
+.spacer{flex:1}
+
+.pill{
+  display:inline-flex; align-items:center; gap:8px;
+  padding: 9px 12px;
+  border:1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.03);
+  color: var(--muted);
+}
+.pill strong{color:var(--text)}
+
+.btn{
+  appearance:none;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+  padding: 11px 14px;
+  border-radius: 14px;
+  cursor:pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  box-shadow: 0 10px 24px rgba(0,0,0,.20);
+}
+.btn:hover{transform: translateY(-1px); border-color: rgba(234,240,255,.22); background: rgba(255,255,255,.07)}
+.btn:active{transform: translateY(0px) scale(.99)}
+.btn.primary{
+  border-color: rgba(160,130,255,.35);
+  background:
+    radial-gradient(50% 120% at 10% 0%, rgba(255,255,255,.18), transparent 60%),
+    linear-gradient(135deg, rgba(160,130,255,.55), rgba(255,130,190,.35));
+}
+.btn.danger{
+  border-color: rgba(255,124,155,.35);
+  background: rgba(255,124,155,.10);
+}
+.btn.ghost{
+  box-shadow:none;
+  background: transparent;
+}
+.btn.small{padding: 8px 10px; border-radius: 12px; font-size: 14px}
+
+.card{
+  border:1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border-radius: var(--radius2);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+}
+.card-inner{padding: 18px}
+.card-title{font-size: 22px; font-weight: 850; letter-spacing:.2px}
+.card-sub{color:var(--muted); margin-top:6px; line-height:1.45}
+.grid{
+  display:grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+@media (max-width: 860px){
+  .grid{grid-template-columns: 1fr;}
+}
+
+.kbd{
+  font-size:12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.22);
+  color: var(--muted);
+}
+
+.progress{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+  justify-content:center;
+  margin: 14px 0 0;
+}
+.dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.06);
+}
+.dot.on{
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.7), rgba(160,130,255,.85));
+  border-color: rgba(160,130,255,.35);
+  box-shadow: 0 0 0 6px rgba(160,130,255,.10);
+}
+
+.hr{
+  height:1px;
+  background: var(--line);
+  border:0;
+  margin: 14px 0;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toastwrap{
+  position: fixed;
+  inset: auto 14px 14px auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  z-index: 90;
+}
+.toast{
+  width: min(360px, calc(100vw - 28px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  border:1px solid var(--line);
+  background: rgba(10,14,34,.72);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+.toast strong{display:block; margin-bottom:4px}
+.toast p{margin:0; color: var(--muted); line-height:1.35}
+
+.input, textarea.input{
+  width:100%;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+textarea.input{min-height: 96px; resize: vertical}
+.label{font-size: 12px; color: var(--muted2); margin-bottom: 6px}
+
+.split{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media(max-width: 720px){ .split{grid-template-columns:1fr} }
+
+.splineBox{
+  width:100%;
+  height: 430px;
+  border-radius: var(--radius2);
+  overflow:hidden;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  background: rgba(0,0,0,.22);
+}
+@media(max-width: 720px){ .splineBox{height: 360px;} }
+
+.fallbackBlob{
+  width:100%;
+  height:100%;
+  display:grid;
+  place-items:center;
+  background:
+    radial-gradient(320px 220px at 40% 35%, rgba(255,255,255,.11), transparent 60%),
+    radial-gradient(240px 200px at 60% 70%, rgba(160,130,255,.20), transparent 60%),
+    radial-gradient(220px 180px at 25% 70%, rgba(255,130,190,.18), transparent 60%),
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+}
+.blob{
+  width: 190px;
+  height: 190px;
+  border-radius: 44% 56% 62% 38% / 50% 42% 58% 50%;
+  background: linear-gradient(135deg, rgba(160,130,255,.75), rgba(255,130,190,.55));
+  box-shadow: 0 20px 60px rgba(160,130,255,.18);
+  animation: floaty 3.2s ease-in-out infinite;
+}
+@keyframes floaty{
+  0%,100%{transform: translateY(0) rotate(0deg)}
+  50%{transform: translateY(-10px) rotate(3deg)}
+}
+
+.gameBoard{
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media(max-width: 520px){
+  .gameBoard{grid-template-columns: repeat(3, 1fr);}
+}
+.cardTile{
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  box-shadow: 0 10px 26px rgba(0,0,0,.20);
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+  user-select:none;
+  position:relative;
+  overflow:hidden;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.cardTile:hover{transform: translateY(-1px); border-color: rgba(234,240,255,.20)}
+.cardTile:active{transform: translateY(0px) scale(.99)}
+.cardTile.revealed{
+  background:
+    radial-gradient(160px 120px at 30% 20%, rgba(255,255,255,.14), transparent 60%),
+    linear-gradient(135deg, rgba(160,130,255,.28), rgba(255,130,190,.20));
+  border-color: rgba(160,130,255,.35);
+}
+.cardTile.matched{
+  background: rgba(124,255,178,.12);
+  border-color: rgba(124,255,178,.35);
+}
+.tileEmoji{
+  font-size: 34px;
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.28));
+}
+.tileBack{
+  width: 64%;
+  height: 64%;
+  border-radius: 20px;
+  background:
+    radial-gradient(40px 40px at 30% 30%, rgba(255,255,255,.18), transparent 70%),
+    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  border:1px dashed rgba(234,240,255,.22);
+}
+
+.letterWrap{
+  display:grid;
+  gap: 12px;
+}
+.envelope{
+  border-radius: var(--radius2);
+  border:1px solid var(--line);
+  background:
+    radial-gradient(360px 240px at 20% 20%, rgba(255,255,255,.10), transparent 60%),
+    linear-gradient(135deg, rgba(160,130,255,.22), rgba(255,130,190,.16)),
+    rgba(0,0,0,.18);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+}
+.envelopeTop{
+  padding: 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+.envelopeSeal{
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.65), rgba(255,130,190,.65));
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow: 0 16px 36px rgba(255,130,190,.18);
+}
+.letterPaper{
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(0,0,0,.16), rgba(0,0,0,.06));
+  border-top: 1px solid var(--line);
+}
+.letterPaper p{
+  margin: 0;
+  color: rgba(234,240,255,.84);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.letterMeta{
+  display:flex; flex-wrap:wrap; gap:10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.placeGrid{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media(max-width: 860px){ .placeGrid{grid-template-columns: 1fr 1fr;} }
+@media(max-width: 520px){ .placeGrid{grid-template-columns: 1fr;} }
+
+.placeCard{
+  border-radius: var(--radius2);
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  overflow:hidden;
+  box-shadow: var(--shadow);
+  cursor:pointer;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.placeCard:hover{
+  transform: translateY(-2px);
+  border-color: rgba(234,240,255,.22);
+  background: rgba(255,255,255,.05);
+}
+.placeCard.on{
+  border-color: rgba(124,255,178,.35);
+  background: rgba(124,255,178,.10);
+}
+.placeImg{
+  height: 126px;
+  background:
+    radial-gradient(220px 160px at 30% 30%, rgba(255,255,255,.14), transparent 60%),
+    linear-gradient(135deg, rgba(160,130,255,.22), rgba(255,130,190,.14));
+  border-bottom: 1px solid var(--line);
+  position:relative;
+}
+.placeImg img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+  opacity:.9;
+}
+.placeBody{padding: 12px 12px 14px}
+.placeName{font-weight: 850; letter-spacing:.2px}
+.placeDesc{margin-top: 6px; color: var(--muted); line-height: 1.42; font-size: 13px}
+.placeTags{margin-top: 10px; display:flex; flex-wrap:wrap; gap:8px}
+.tag{
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border:1px solid var(--line);
+  color: var(--muted);
+  background: rgba(0,0,0,.18);
+}
+
+.outfitRow{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media(max-width: 720px){ .outfitRow{grid-template-columns:1fr} }
+
+.outfitCard{
+  border-radius: var(--radius2);
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  overflow:hidden;
+  box-shadow: var(--shadow);
+  cursor:pointer;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.outfitCard:hover{transform: translateY(-2px); border-color: rgba(234,240,255,.22)}
+.outfitCard.on{
+  border-color: rgba(160,130,255,.38);
+  background: rgba(160,130,255,.10);
+}
+.outfitHead{
+  padding: 12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border-bottom: 1px solid var(--line);
+}
+.outfitBody{
+  padding: 14px;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mannequin{
+  border-radius: 18px;
+  border:1px dashed rgba(234,240,255,.20);
+  background: rgba(0,0,0,.18);
+  padding: 12px;
+}
+.mannequinTitle{font-size: 12px; color: var(--muted2); margin-bottom: 8px}
+.palette{
+  display:flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.swatch{
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow: 0 8px 18px rgba(0,0,0,.25);
+}
+.silhouette{
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow: 0 10px 22px rgba(0,0,0,.22);
+  background: rgba(255,255,255,.03);
+  display:grid;
+  place-items:center;
+}
+.silhouette svg{width: 82%; height: 82%; opacity:.95}
+
+.footerActions{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 10px;
+  justify-content:flex-end;
+  margin-top: 14px;
+}
+
+.smallmuted{font-size: 12px; color: var(--muted2); line-height: 1.45}
+
+/* --- KUROMI & CHAT MODE --- */
+.gameLayout {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr; /* Game lebih lebar, Karakter di kanan */
+  gap: 30px;
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .gameLayout { grid-template-columns: 1fr; }
+  .kuromiSection { order: -1; flex-direction: row; margin-bottom: 20px; gap: 16px; }
+  .kuromiImg { width: 100px !important; }
+}
+
+.kuromiSection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.kuromiImg {
+  width: 220px;
+  height: auto;
+  filter: drop-shadow(0 0 25px rgba(168, 85, 247, 0.4)); /* Glow ungu di belakang kuromi */
+  animation: floatKuro 3.5s ease-in-out infinite;
+  transition: all 0.3s;
+}
+@keyframes floatKuro {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+.bubble {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(168, 85, 247, 0.5); /* Border ungu neon */
+  padding: 18px 22px;
+  border-radius: 24px;
+  border-bottom-left-radius: 4px; /* Lancip ke arah kuromi */
+  margin-bottom: 20px;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  position: relative;
+  min-width: 200px;
+  text-align: center;
+  animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+/* Segitiga bubble */
+.bubble:after {
+  content: '';
+  position: absolute;
+  bottom: -10px; left: 20px;
+  border-width: 10px 10px 0;
+  border-style: solid;
+  border-color: rgba(168, 85, 247, 0.5) transparent transparent transparent;
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.8) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* --- PREMIUM GENTLEMAN INTRO --- */
+.heroSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 520px;
+  gap: 50px;
+  position: relative;
+  z-index: 10;
+}
+@media (max-width: 860px) {
+  .heroSection {
+    flex-direction: column-reverse;
+    text-align: center;
+    justify-content: center;
+    gap: 40px;
+    min-height: auto;
+  }
+}
+
+/* Animasi Masuk (Staggered Animation) */
+.animate-up {
+  opacity: 0;
+  transform: translateY(30px);
+  animation: fadeSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+.delay-4 { animation-delay: 0.5s; }
+
+@keyframes fadeSlideUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Typography Keren */
+.gentle-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a78bfa;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.gentle-title {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #fff;
+  margin-bottom: 16px;
+  letter-spacing: -1px;
+}
+.highlight {
+  background: linear-gradient(135deg, #a78bfa, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gentle-desc {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.6;
+  max-width: 480px;
+  margin-bottom: 30px;
+}
+@media (max-width: 860px) { .gentle-desc { margin-left: auto; margin-right: auto; } }
+
+/* Tombol Premium */
+.btn-premium {
+  position: relative;
+  padding: 16px 32px;
+  background: #fff;
+  color: #000;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-premium:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(167, 139, 250, 0.4);
+  background: #f8fafc;
+}
+.btn-premium span { font-size: 18px; }
+
+/* --- VISUAL STAGE (Area Kanan) --- */
+.glass-stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  
+  /* 1. GESER GAMBAR + BUBBLE (Ke Kiri & Bawah) */
+  /* Geser ke kiri 50px, Turun 30px */
+  transform: translateX(-200px) translateY(30px); 
+}
+
+/* --- KOTAK KACA (FRAME) --- */
+.glass-panel {
+  position: absolute;
+  width: 300px; height: 400px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 30px;
+  
+  /* Rotasi dikit biar estetik */
+  transform: rotate(-3deg);
+  
+  z-index: 1;
+  transition: all 0.5s ease;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+
+/* Hover Effect: Lurusin frame */
+.heroSection:hover .glass-panel {
+  transform: rotate(0deg) scale(1.02);
+  border-color: rgba(167, 139, 250, 0.8);
+  box-shadow: 0 30px 60px rgba(124, 58, 237, 0.3);
+}
+
+.glass-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: 0.9;
+  transition: opacity 0.5s;
+}
+.heroSection:hover .glass-img { opacity: 1; }
+
+
+/* --- BUBBLE CHAT (POSISI BARU) --- */
+.chat-elegant {
+  position: absolute;
+  
+  /* TEKNIK CENTER LOCK */
+  left: 50%;
+  top: 50%;
+  
+  /* 2. ATUR KOORDINAT BUBBLE (Biar gak nyentuh garis tepi) */
+  /* X: 140px (Geser ke kanan luar frame) */
+  /* Y: -220px (Naik ke atas frame) */
+  transform: translate(20px, -290px);
+  
+  background: rgba(15, 15, 20, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #fff;
+  padding: 14px 20px;
+  border-radius: 20px;
+  
+  /* Lancip arah foto (Kiri Bawah) */
+  border-bottom-left-radius: 2px; 
+  
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  width: 200px;
+  z-index: 20;
+  
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  animation: floatBubble 5s ease-in-out infinite;
+}
+
+/* Ekor Bubble */
+.chat-elegant::after {
+  content: '';
+  position: absolute;
+  bottom: -10px; left: -10px; /* Nempel di pojok kiri bawah bubble */
+  width: 0; height: 0;
+  border-style: solid;
+  /* Segitiga siku arah foto */
+  border-width: 0 15px 15px 0; 
+  border-color: transparent rgba(167, 139, 250, 0.4) transparent transparent;
+  filter: drop-shadow(-2px 2px 2px rgba(0,0,0,0.3));
+}
+
+@keyframes floatBubble {
+  0%, 100% { margin-top: 0; }
+  50% { margin-top: -10px; }
+}
+
+
+/* --- RESPONSIVE HP (JANGAN RUSAK TAMPILAN HP) --- */
+@media (max-width: 860px) { 
+  .glass-stage {
+    /* Reset geseran kalau di HP biar tetep di tengah */
+    transform: none !important;
+    margin-top: 20px;
+  }
+  
+  .heroSection {
+    margin-top: 80px;
+    flex-direction: column-reverse;
+    gap: 50px;
+  }
+
+  .chat-elegant {
+    /* POSISI HP: TENGAH ATAS */
+    transform: translate(-50%, -130px); /* Naik ke atas foto */
+    left: 50%; top: 0;
+    
+    width: 220px;
+    text-align: center;
+    border-bottom-left-radius: 20px;
+    border-bottom: 3px solid rgba(139, 92, 246, 0.6);
+  }
+  
+  .chat-elegant::after {
+    left: 50%; bottom: -12px; margin-left: -10px;
+    border-width: 12px 12px 0 12px; /* Panah Bawah */
+    border-color: rgba(167, 139, 250, 0.6) transparent transparent transparent;
+    filter: none;
+  }
+  
+  .glass-panel {
+    width: 260px !important; height: 350px !important;
+  }
+}
+
+.typing-cursor {
+  display: inline-block;
+  width: 2px; height: 14px;
+  background: #a78bfa;
+  margin-left: 4px;
+  animation: blink 1s infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* --- PREMIUM INTERACTIVE HERO --- */
+
+/* 1. EFEK TEKS CAHAYA (SHIMMER) */
+.title-shimmer {
+  font-size: 56px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -1.5px;
+  
+  /* Gradient 3 Warna: Putih - Ungu Terang - Putih */
+  background: linear-gradient(
+    to right, 
+    #ffffff 20%, 
+    #c4b5fd 50%, 
+    #ffffff 80%
+  );
+  background-size: 200% auto;
+  
+  /* Masking teks biar background-nya masuk ke huruf */
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  
+  /* Animasi cahaya gerak */
+  animation: shineMove 4s linear infinite;
+  
+  /* Drop shadow halus biar pop-up dari background gelap */
+  filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.15));
+}
+
+@keyframes shineMove {
+  0% { background-position: 200% center; }
+  100% { background-position: 0% center; }
+}
+
+@media (max-width: 500px) { .title-shimmer { font-size: 42px; } }
+
+
+/* 2. TOMBOL MODERN (HOVER FILL EFFECT) */
+.btn-unlock-modern {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 36px;
+  
+  /* Style Awal: Putih Solid (Gentleman) */
+  background: #ffffff;
+  color: #0f172a;
+  
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  overflow: hidden; /* Biar animasi gak bocor */
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+/* Layer Ungu yang bakal muncul pas hover */
+.btn-unlock-modern::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; width: 0%; height: 100%;
+  background: #7c3aed; /* Ungu Neon */
+  z-index: -1;
+  transition: all 0.4s ease;
+  border-radius: 14px;
+}
+
+/* Pas di-Hover */
+.btn-unlock-modern:hover {
+  color: #ffffff; /* Teks jadi putih */
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 10px 40px rgba(124, 58, 237, 0.5); /* Glow ungu terang */
+  letter-spacing: 0.5px; /* Teks melebar dikit */
+}
+
+.btn-unlock-modern:hover::before {
+  width: 100%; /* Fill ungu menuhin tombol */
+}
+
+/* Animasi Icon Gembok */
+.icon-lock {
+  transition: transform 0.3s;
+}
+.btn-unlock-modern:hover .icon-lock {
+  transform: rotate(-15deg) scale(1.2); /* Gembok goyang pas hover */
+}
+
+/* Update bagian ini di src/styles.css */
+
+/* Kartu Kaca di belakang */
+.glass-panel {
+  position: absolute;
+  width: 300px; height: 400px; /* Gw tinggiin dikit biar pas rasio foto */
+  /* Background lama dihapus, ganti jadi transparan */
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 30px;
+  transform: rotate(-3deg);
+  z-index: 1;
+  transition: all 0.5s ease;
+  /* PENTING: Biar foto gak keluar dari bingkai bulat */
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+
+/* Efek Hover di Panel Kaca */
+.heroSection:hover .glass-panel {
+  transform: rotate(0deg) scale(1.05) translateY(-10px); /* Pas dihover jadi lurus */
+  border-color: rgba(167, 139, 250, 0.8); /* Border jadi ungu terang */
+  box-shadow: 0 30px 60px rgba(124, 58, 237, 0.3); /* Glow ungu */
+}
+
+/* CSS Baru buat Fotonya */
+.glass-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Biar foto ngisi penuh kotaknya */
+  opacity: 0.85; /* Agak transparan dikit biar nyatu sama background */
+  transition: opacity 0.5s;
+}
+.heroSection:hover .glass-img {
+  opacity: 1; /* Pas dihover jadi jelas banget */
+}
+
+/* --- FIX TAMPILAN HP (RESPONSIVE) --- */
+
+@media (max-width: 768px) {
+  
+  /* 1. Container Utama: Susun Atas-Bawah */
+  .heroSection {
+    flex-direction: column-reverse; /* Teks di bawah, Foto di atas */
+    gap: 50px; /* Kasih jarak biar bubble gak nabrak teks */
+    text-align: center;
+    justify-content: center;
+    padding-top: 40px; /* Turunin dikit biar bubble gak kepotong atas */
+  }
+
+  /* 2. Judul: Kecilin Dikit Biar Gak Pecah */
+  .gentle-title, .title-shimmer {
+    font-size: 32px !important; /* Paksa jadi lebih kecil */
+    line-height: 1.2;
+  }
+  .gentle-desc {
+    font-size: 14px;
+    margin: 0 auto; /* Tengahin teks */
+    padding: 0 10px;
+  }
+
+  /* 3. Kotak Foto: Kecilin Ukurannya */
+  .glass-panel {
+    width: 240px !important; /* Kecilin dari 300px */
+    height: 320px !important; /* Kecilin dari 400px */
+    transform: rotate(0deg); /* Lurusin aja biar rapi */
+    margin: 0 auto; /* Pastikan di tengah */
+  }
+  
+  /* 4. Bubble Chat: Pindah ke Tengah Atas */
+  .chat-elegant {
+    top: -70px; /* Naik ke atas foto */
+    right: auto; /* Reset posisi kanan */
+    left: 50%; /* Pindah ke tengah */
+    transform: translateX(-50%); /* Koreksi biar beneran di tengah */
+    
+    width: 200px; /* Lebar fix biar ga melebar */
+    text-align: center;
+    font-size: 12px;
+    padding: 12px 16px;
+  }
+  
+  /* Ekor bubble pindah ke tengah bawah */
+  .chat-elegant::after {
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 10px 10px 0 10px;
+    border-color: rgba(167, 139, 250, 0.4) transparent transparent transparent;
+  }
+
+  /* 5. Tombol: Penuhin Layar */
+  .btn-unlock-modern {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  /* 6. Game Layout (Kuromi di Game) */
+  .gameLayout {
+    grid-template-columns: 1fr; /* Jadi 1 kolom */
+    gap: 30px;
+  }
+  .kuromiSection {
+    flex-direction: column;
+    margin-top: 20px;
+  }
+  .bubble {
+    margin-bottom: 10px;
+  }
+}
+
+/* --- NEW HEADER & VIDEO MODAL STYLES --- */
+
+/* 1. Tombol Couple (Keyy x Yoshyy) yang Baru */
+.couple-btn-glow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 15, 20, 0.6);
+  border: 1px solid rgba(139, 92, 246, 0.5); /* Garis ungu tipis */
+  border-radius: 50px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  box-shadow: 0 0 15px rgba(124, 58, 237, 0.2);
+}
+
+/* Efek Hover (Makin nyala pas disentuh) */
+.couple-btn-glow:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: #a78bfa;
+  box-shadow: 0 0 25px rgba(124, 58, 237, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Teks Nama */
+.couple-name {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  background: linear-gradient(90deg, #fff, #e0e7ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Ikon Play yang Berdenyut */
+.play-icon {
+  font-size: 12px;
+  color: #a78bfa;
+  animation: pulsePlay 2s infinite;
+}
+@keyframes pulsePlay {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 2. MODAL VIDEO (POPUP) */
+.video-overlay {
+  position: fixed;
+  inset: 0; /* Full layar */
+  background: rgba(0, 0, 0, 0.85); /* Background gelap */
+  backdrop-filter: blur(10px); /* Efek blur di belakang */
+  z-index: 9999; /* Pastikan paling depan */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.4s ease;
+  padding: 20px;
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  max-width: 800px; /* Lebar maksimal video */
+  background: #000;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.video-player {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-height: 80vh; /* Biar gak kepotong di layar pendek */
+}
+
+/* Tombol Close (X) */
+.close-video-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  z-index: 10;
+  transition: 0.2s;
+  display: flex; alignItems: center; justify-content: center;
+}
+.close-video-btn:hover { background: rgba(255, 0, 0, 0.8); transform: scale(1.1); }
+
+/* Animasi Masuk */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
