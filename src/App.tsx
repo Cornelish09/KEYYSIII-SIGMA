@@ -38,26 +38,23 @@ export default function App() {
 
   // ✅ LOGIKA SINKRONISASI REAL-TIME (DIPERKUAT)
   React.useEffect(() => {
+    // 1. Koneksi ke 'Radio' Firebase
     const docRef = doc(db, "configs", "main-config");
     
-    // Paksa ambil data cloud SEGERA saat app dibuka
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data() as ContentConfig;
         
-        // Cek apakah data cloud beda sama yang di memori HP
-        // Kalau beda, langsung ganti tampilan
-        setCfg(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(cloudData)) {
-             console.log("⚡ Syncing Cloud to UI...");
-             saveConfig(cloudData); // Update memori HP
-             return cloudData;
-          }
-          return prev;
-        });
+        // 2. LOGIKA SAKTI: Paksa State & LocalStorage ikut Cloud
+        setCfg(cloudData);
+        
+        // Simpan manual ke memori HP biar pas di-refresh gak balik ke data lama
+        localStorage.setItem("hangout_card_config_v1", JSON.stringify(cloudData));
+        
+        console.log("🔔 SYNC BERHASIL: HP lo sekarang pake data terbaru dari Laptop!");
       }
     }, (error) => {
-      console.error("Firebase Error:", error);
+      console.error("Koneksi Firebase Putus:", error);
     });
 
     return () => unsubscribe();
