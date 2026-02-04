@@ -55,9 +55,17 @@ export function Admin() {
     }
   };
 
-  const updateConfig = (newCfg: ContentConfig) => {
+  const updateConfig = async (newCfg: ContentConfig) => {
     setCfg(newCfg);
     saveConfig(newCfg); 
+    
+    // TAMBAHKAN INI: Biar setiap ada perubahan (hapus/tambah), langsung lapor ke Firebase
+    try {
+      await setDoc(doc(db, "configs", "main-config"), newCfg);
+      console.log("Auto-sync Firebase Berhasil!");
+    } catch (err) {
+      console.error("Auto-sync gagal:", err);
+    }
   };
 
   // --- CRUD HELPERS ---
