@@ -5,8 +5,8 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import "./styles.css";
 
 import type { AppState, ContentConfig } from "./lib/types";
-// ✅ Gue panggil saveConfig biar datanya permanen di HP
-import { loadConfig, loadState, resetState, saveState, saveConfig } from "./lib/storage"; 
+// ✅ Gue panggil saveConfig supaya HP lo beneran nyimpen datanya
+import { loadConfig, loadState, resetState, saveState, saveConfig } from "./lib/storage";
 import { ROUTE_FOR_STEP, stepForPath } from "./lib/flow";
 import { logEvent } from "./lib/activity";
 
@@ -14,7 +14,7 @@ import { Layout } from "./components/Layout";
 import { ToastArea, useToasts } from "./components/Toast";
 import { Header } from "./components/Header";
 
-// Pages ... (Gue skip bagian import ini biar gak kepanjangan, tetep pake punya lo)
+// Pages (Tetep sesuai punya lo)
 import { Intro3D } from "./pages/Intro3D";
 import { GameUnlock } from "./pages/GameUnlock";
 import { Letter } from "./pages/Letter";
@@ -36,19 +36,26 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
+  // ✅ LOGIKA SINKRONISASI REAL-TIME (DIPERKUAT)
   React.useEffect(() => {
     const docRef = doc(db, "configs", "main-config");
     
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data() as ContentConfig;
-        console.log("Data Firebase Ter-update secara Real-time!");
+        const cloudData = docSnap.data() as ContentConfig;
+        console.log("☁️ Data Firebase masuk!");
         
-        // 1. Update tampilan (state)
-        setCfg(data);
+        // Update state biar tampilan berubah langsung
+        setCfg(cloudData);
         
-        // 2. ✅ INI KUNCINYA: Simpan ke memori HP biar pas refresh gak balik ke data lama
-        saveConfig(data); 
+        // ✅ INI YANG BIKIN HP LO SINKRON:
+        // Simpan ke local storage supaya pas di-refresh data barunya tetep ada
+        saveConfig(cloudData); 
+        
+        // Kasih notifikasi biar lo tau di HP kalau datanya masuk
+        if(window.location.pathname !== "/admin") {
+           console.log("Sync Success!");
+        }
       }
     });
 
@@ -67,11 +74,12 @@ export default function App() {
     logEvent("app_open", { path: window.location.pathname });
   }, []);
 
+  // Sync antar tab (jaga-jaga kalau admin dibuka di tab sebelah)
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key?.includes("hangout_card_config_v1")) {
-        setCfg(loadConfig());
-        push("Updated", "Config berubah (Admin).");
+        const newC = loadConfig();
+        setCfg(newC);
       }
       if (e.key?.includes("hangout_card_state_v1")) {
         setState(loadState());
@@ -79,7 +87,7 @@ export default function App() {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [push]);
+  }, []);
 
   React.useEffect(() => {
     const redirect = enforceStep(loc.pathname, state.step);
@@ -114,6 +122,7 @@ export default function App() {
   return (
     <>
       <Header onReset={onResetProgress} />
+
       <Layout cfg={cfg} state={state} onReset={onResetProgress}>
         <Routes>
           <Route path="/" element={<Intro3D cfg={cfg} state={state} setState={setState} />} />
@@ -129,6 +138,7 @@ export default function App() {
         </Routes>
         <button style={{ display: "none" }} onClick={restartToStart} />
       </Layout>
+
       <ToastAreaAny items={toastList} toasts={toastList} />
     </>
   );
