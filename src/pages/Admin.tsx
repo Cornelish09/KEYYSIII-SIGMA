@@ -48,10 +48,15 @@ export function Admin() {
   };
 
   const handleSave = async () => {
-    setSaveStatus("saved");
-    logEvent("settings_updated", { tab: activeTab });
-    setTimeout(() => setSaveStatus("idle"), 2000);
-    alert("Data BERHASIL disinkronkan!");
+    try {
+      // Pastikan docRef-nya bener: "configs" -> "main-config"
+      await setDoc(doc(db, "configs", "main-config"), cfg);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+      alert("✅ CLOUD SYNC BERHASIL!");
+    } catch (err) {
+      alert("❌ ERROR: " + err);
+    }
   };
 
   // --- CRUD HELPERS ---
@@ -108,8 +113,8 @@ export function Admin() {
         let width = img.width;
         let height = img.height;
 
-        // Paksa ukuran maksimal 600px biar super enteng & fast respon
-        const MAX_SIZE = 600; 
+        // SET KE 500PX BIAR SUPER CEPAT DI HP
+        const MAX_SIZE = 500; 
         if (width > height) {
           if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
         } else {
@@ -121,7 +126,7 @@ export function Admin() {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
 
-        // Kompres kualitas ke 0.5 (50%) - Dijamin kenceng kirimnya
+        // Kompres ke JPEG 0.5 (50%) - Ini rahasia biar HP langsung sinkron
         const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         callback(dataUrl);
       };
