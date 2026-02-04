@@ -1,11 +1,12 @@
 import { db } from "./firebase";
-import { doc, onSnapshot } from "firebase/firestore"; // Ganti getDoc jadi onSnapshot
+import { doc, onSnapshot } from "firebase/firestore"; 
 import React from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import "./styles.css";
 
 import type { AppState, ContentConfig } from "./lib/types";
-import { loadConfig, loadState, resetState, saveState } from "./lib/storage";
+// ✅ Gue panggil saveConfig biar datanya permanen di HP
+import { loadConfig, loadState, resetState, saveState, saveConfig } from "./lib/storage"; 
 import { ROUTE_FOR_STEP, stepForPath } from "./lib/flow";
 import { logEvent } from "./lib/activity";
 
@@ -13,7 +14,7 @@ import { Layout } from "./components/Layout";
 import { ToastArea, useToasts } from "./components/Toast";
 import { Header } from "./components/Header";
 
-// Pages
+// Pages ... (Gue skip bagian import ini biar gak kepanjangan, tetep pake punya lo)
 import { Intro3D } from "./pages/Intro3D";
 import { GameUnlock } from "./pages/GameUnlock";
 import { Letter } from "./pages/Letter";
@@ -25,16 +26,9 @@ import { NotFound } from "./pages/NotFound";
 
 function enforceStep(pathname: string, stateStep: AppState["step"]): string | null {
   const pageStep = stepForPath(pathname);
-
-  // Biar route lain (mis: /final/*, /404) nggak kena gate
   if (pageStep === null) return null;
-
-  // Admin bypass
   if (pathname.startsWith("/admin")) return null;
-
-  // Cegah loncat step
   if (pageStep > stateStep) return ROUTE_FOR_STEP[stateStep];
-
   return null;
 }
 
@@ -43,24 +37,27 @@ export default function App() {
   const [state, setState] = React.useState<AppState>(() => loadState());
 
   React.useEffect(() => {
-    // Ini fungsi 'satpam' yang bakal jagain database 24 jam
     const docRef = doc(db, "configs", "main-config");
     
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
+        const data = docSnap.data() as ContentConfig;
         console.log("Data Firebase Ter-update secara Real-time!");
-        setCfg(docSnap.data() as ContentConfig);
+        
+        // 1. Update tampilan (state)
+        setCfg(data);
+        
+        // 2. ✅ INI KUNCINYA: Simpan ke memori HP biar pas refresh gak balik ke data lama
+        saveConfig(data); 
       }
     });
 
-    // Biar gak boros baterai, stop pantau kalau aplikasinya ditutup
     return () => unsubscribe();
   }, []);
 
   const loc = useLocation();
   const nav = useNavigate();
 
-  // ✅ Kompatibel: useToasts bisa return {items,push} ATAU {toasts,push}
   const toastApi: any = useToasts();
   const push: (title: string, msg: string) => void = toastApi?.push ?? (() => {});
   const toastList = toastApi?.items ?? toastApi?.toasts ?? [];
@@ -70,7 +67,6 @@ export default function App() {
     logEvent("app_open", { path: window.location.pathname });
   }, []);
 
-  // Sync kalau config/state diubah dari tab lain (admin)
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key?.includes("hangout_card_config_v1")) {
@@ -85,7 +81,6 @@ export default function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, [push]);
 
-  // Step gate
   React.useEffect(() => {
     const redirect = enforceStep(loc.pathname, state.step);
     if (redirect && redirect !== loc.pathname) {
@@ -103,7 +98,6 @@ export default function App() {
     nav("/", { replace: true });
   };
 
-  // Optional: balik ke awal tapi keep config
   const restartToStart = () => {
     const next: AppState = {
       ...state,
@@ -120,7 +114,6 @@ export default function App() {
   return (
     <>
       <Header onReset={onResetProgress} />
-
       <Layout cfg={cfg} state={state} onReset={onResetProgress}>
         <Routes>
           <Route path="/" element={<Intro3D cfg={cfg} state={state} setState={setState} />} />
@@ -128,23 +121,14 @@ export default function App() {
           <Route path="/letter" element={<Letter cfg={cfg} state={state} setState={setState} />} />
           <Route path="/places" element={<Places cfg={cfg} state={state} setState={setState} />} />
           <Route path="/outfits" element={<Outfits cfg={cfg} state={state} setState={setState} />} />
-
-          {/* alias lama kalau masih ada yang ke /done */}
           <Route path="/done" element={<Navigate to="/final" replace />} />
-
-          {/* ✅ ini wajib karena Outfits navigate ke "/final" */}
           <Route path="/final/*" element={<Final cfg={cfg} state={state} />} />
-
           <Route path="/admin/*" element={<Admin />} />
           <Route path="/404" element={<NotFound />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>
-
-        {/* kalau kamu butuh tombol restart di Final, bisa dipindah ke Final nanti */}
         <button style={{ display: "none" }} onClick={restartToStart} />
       </Layout>
-
-      {/* ✅ Kirim kedua prop biar aman */}
       <ToastAreaAny items={toastList} toasts={toastList} />
     </>
   );
