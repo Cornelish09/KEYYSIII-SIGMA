@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore"; // Ganti getDoc jadi onSnapshot
 import React from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import "./styles.css";
@@ -42,17 +42,21 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
-  // Tambahin useEffect ini di bawahnya:
   React.useEffect(() => {
-    const syncFirebase = async () => {
-      const docRef = doc(db, "configs", "main-config");
-      const docSnap = await getDoc(docRef);
+    // Ini fungsi 'satpam' yang bakal jagain database 24 jam
+    const docRef = doc(db, "configs", "main-config");
+    
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
+        console.log("Data Firebase Ter-update secara Real-time!");
         setCfg(docSnap.data() as ContentConfig);
       }
-    };
-    syncFirebase();
+    });
+
+    // Biar gak boros baterai, stop pantau kalau aplikasinya ditutup
+    return () => unsubscribe();
   }, []);
+
   const loc = useLocation();
   const nav = useNavigate();
 
