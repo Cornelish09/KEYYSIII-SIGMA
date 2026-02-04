@@ -1,10 +1,37 @@
 import type { AppState, ContentConfig } from "./types";
 import { DEFAULT_CONFIG } from "./defaultConfig";
+import { db } from "../firebase"; // Import koneksi firebase lo
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 const KEY_STATE = "hangout_card_state_v1";
 const KEY_CONFIG = "hangout_card_config_v1";
 const KEY_LOGS = "hangout_card_logs_v1";
 
+// --- FUNGSI BARU UNTUK FIREBASE ---
+export async function syncFromFirebase(): Promise<ContentConfig | null> {
+  try {
+    const docRef = doc(db, "configs", "main_config");
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data() as ContentConfig;
+      saveConfig(data); // Simpan ke local biar awet
+      return hydrateConfig(data);
+    }
+  } catch (e) {
+    console.error("Gagal tarik data:", e);
+  }
+  return null;
+}
+
+export async function syncToFirebase(cfg: ContentConfig) {
+  try {
+    await setDoc(doc(db, "configs", "main_config"), cfg);
+  } catch (e) {
+    console.error("Gagal simpan ke awan:", e);
+  }
+}
+
+// --- KODINGAN LAMA LO (DENGAN MODIFIKASI) ---
 export function loadConfig(): ContentConfig {
   try {
     const raw = localStorage.getItem(KEY_CONFIG);
@@ -18,6 +45,7 @@ export function loadConfig(): ContentConfig {
 
 export function saveConfig(cfg: ContentConfig): void {
   localStorage.setItem(KEY_CONFIG, JSON.stringify(cfg));
+  syncToFirebase(cfg); // OTOMATIS KIRIM KE FIREBASE PAS DI SAVE
 }
 
 export function resetConfig(): void {
@@ -59,7 +87,6 @@ export type StoredLog = { ts: string; type: string; payload?: unknown };
 export function pushLog(ev: StoredLog): void {
   const logs = loadLogs();
   logs.push(ev);
-  // cap
   const capped = logs.slice(-400);
   localStorage.setItem(KEY_LOGS, JSON.stringify(capped));
 }
@@ -80,10 +107,9 @@ export function clearLogs(): void {
 }
 
 function hydrateConfig(cfg: ContentConfig): ContentConfig {
-  // Replace tokens in letter
-  const her = cfg.couple.herName || "Sayang";
-  const you = cfg.couple.yourName || "Aku";
-  const body = (cfg.letter.body || "").replaceAll("{HER}", her).replaceAll("{YOU}", you);
+  const her = cfg.couple?.herName || "Sayang";
+  const you = cfg.couple?.yourName || "Aku";
+  const body = (cfg.letter?.body || "").replaceAll("{HER}", her).replaceAll("{YOU}", you);
   return {
     ...DEFAULT_CONFIG,
     ...cfg,
