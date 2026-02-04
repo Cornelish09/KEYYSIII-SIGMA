@@ -99,8 +99,41 @@ export function Admin() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onloadend = () => callback(reader.result as string);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // --- LOGIKA KOMPRESI ---
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Maksimal lebar/tinggi 800px biar enteng tapi tetep tajam
+        const MAX_SIZE = 800;
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        // Kompres ke JPEG kualitas 0.6 (60%)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        callback(dataUrl);
+      };
+      img.src = event.target?.result as string;
+    };
     reader.readAsDataURL(file);
   };
 
