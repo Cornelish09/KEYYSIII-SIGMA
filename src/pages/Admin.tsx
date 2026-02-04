@@ -80,13 +80,17 @@ export function Admin() {
     const newItems = [...currentOutfits];
     newItems[idx] = { ...newItems[idx], [field]: val };
     
-    updateConfig({ 
+    // Lo bungkus data barunya dulu
+    const newConfigData = { 
       ...cfg, 
       outfits: { 
         ...(cfg.outfits || { headline: "Choose Outfit", subtitle: "Pick your style" }), 
         items: newItems 
       } 
-    });
+    };
+
+    // NAH INI YANG KETINGGALAN TADI! 👇
+    updateConfig(newConfigData); 
   };
 
   // --- FITUR BARU: COLOR PALETTE ---
