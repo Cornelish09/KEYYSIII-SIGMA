@@ -75,24 +75,24 @@ export function Admin() {
     updateConfig({ ...cfg, places: { ...cfg.places, items: newItems } });
   };
 
-  // 1. Fungsi Update Config (Otak utamanya)
+  // 1. SATU FUNGSI UPDATE UTAMA (Auto-sync ke Firebase)
   const updateConfig = async (newCfg: ContentConfig) => {
-    setCfg(newCfg);     // Update tampilan di layar laptop
-    saveConfig(newCfg); // Simpan di memori lokal laptop
+    setCfg(newCfg);     // Update di layar
+    saveConfig(newCfg); // Update di local storage
     
-    // LANGSUNG KIRIM KE FIREBASE (Pake newCfg, jangan cfg!)
     try {
+      // KIRIM DATA TERBARU (newCfg) KE FIREBASE
       await setDoc(doc(db, "configs", "main-config"), newCfg);
-      console.log("✅ Berhasil Sinkron ke Firebase!");
+      console.log("✅ Sync Firebase Berhasil!");
     } catch (err) {
-      console.error("❌ Gagal Sinkron:", err);
+      console.error("❌ Sync Gagal:", err);
     }
   };
 
-  // 2. Fungsi Update Outfit (Khusus buat bagian Outfit)
+  // 2. FUNGSI UPDATE OUTFIT (Panggil fungsi utama di atas)
   const updateOutfit = (idx: number, field: keyof Outfit, val: any) => {
-    const currentOutfits = cfg.outfits?.items || [];
-    const newItems = [...currentOutfits];
+    const currentItems = cfg.outfits?.items || [];
+    const newItems = [...currentItems];
     newItems[idx] = { ...newItems[idx], [field]: val };
     
     const newConfigData = { 
@@ -103,7 +103,6 @@ export function Admin() {
       } 
     };
 
-    // WAJIB PANGGIL INI BIAR FIREBASE NYALA!
     updateConfig(newConfigData); 
   };
 
