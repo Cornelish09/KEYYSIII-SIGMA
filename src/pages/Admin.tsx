@@ -47,17 +47,19 @@ export function Admin() {
     }
   };
 
+  // Ganti fungsi handleSave di Admin.tsx lo dengan ini:
   const handleSave = async () => {
     try {
-      // 1. Teriak ke Firebase: "Woi, ini ada data baru!"
+      setSaveStatus("idle");
+      // Alamat dokumen harus SAMA dengan yang di App.tsx
       await setDoc(doc(db, "configs", "main-config"), cfg);
       
       setSaveStatus("saved");
-      alert("✅ DATA TERKIRIM KE CLOUD! Cek HP lo sekarang.");
+      alert("🚀 PUBLISH BERHASIL! Semua user sekarang melihat perubahan lo.");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
-      // Kalau ini muncul, berarti koneksi internet lo bermasalah
-      alert("❌ GAGAL KIRIM KE CLOUD: " + err);
+      console.error(err);
+      alert("❌ GAGAL PUBLISH: Pastikan ukuran gambar tidak terlalu besar!");
     }
   };
 
@@ -115,8 +117,8 @@ export function Admin() {
         let width = img.width;
         let height = img.height;
 
-        // SET KE 500PX BIAR SUPER CEPAT DI HP
-        const MAX_SIZE = 500; 
+        // RESOLUSI TINGGI: 1200px biar gak burem
+        const MAX_SIZE = 1200; 
         if (width > height) {
           if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
         } else {
@@ -125,11 +127,11 @@ export function Admin() {
 
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
         ctx?.drawImage(img, 0, 0, width, height);
 
-        // Kompres ke JPEG 0.5 (50%) - Ini rahasia biar HP langsung sinkron
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+        // KUALITAS TINGGI: 0.8 (80%) biar jernih
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         callback(dataUrl);
       };
       img.src = event.target?.result as string;

@@ -5,7 +5,6 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import "./styles.css";
 
 import type { AppState, ContentConfig } from "./lib/types";
-// ✅ Gue panggil saveConfig supaya HP lo beneran nyimpen datanya
 import { loadConfig, loadState, resetState, saveState, saveConfig } from "./lib/storage";
 import { ROUTE_FOR_STEP, stepForPath } from "./lib/flow";
 import { logEvent } from "./lib/activity";
@@ -14,7 +13,6 @@ import { Layout } from "./components/Layout";
 import { ToastArea, useToasts } from "./components/Toast";
 import { Header } from "./components/Header";
 
-// Pages (Tetep sesuai punya lo)
 import { Intro3D } from "./pages/Intro3D";
 import { GameUnlock } from "./pages/GameUnlock";
 import { Letter } from "./pages/Letter";
@@ -36,25 +34,25 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
-  // ✅ LOGIKA SINKRONISASI REAL-TIME (DIPERKUAT)
+  // ✅ LOGIKA SINKRONISASI TOTAL (SUMBER KEBENARAN: FIREBASE)
   React.useEffect(() => {
-    // 1. Koneksi ke 'Radio' Firebase
     const docRef = doc(db, "configs", "main-config");
     
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data() as ContentConfig;
         
-        // 2. LOGIKA SAKTI: Paksa State & LocalStorage ikut Cloud
+        // Paksa ganti state UI
         setCfg(cloudData);
         
-        // Simpan manual ke memori HP biar pas di-refresh gak balik ke data lama
+        // Paksa simpan ke storage agar saat refresh data cloud tetap ada
+        saveConfig(cloudData); 
         localStorage.setItem("hangout_card_config_v1", JSON.stringify(cloudData));
         
-        console.log("🔔 SYNC BERHASIL: HP lo sekarang pake data terbaru dari Laptop!");
+        console.log("🔔 Cloud Sync: Data terbaru berhasil diterapkan ke semua user.");
       }
     }, (error) => {
-      console.error("Koneksi Firebase Putus:", error);
+      console.error("Firebase Sync Error:", error);
     });
 
     return () => unsubscribe();
@@ -62,7 +60,6 @@ export default function App() {
 
   const loc = useLocation();
   const nav = useNavigate();
-
   const toastApi: any = useToasts();
   const push: (title: string, msg: string) => void = toastApi?.push ?? (() => {});
   const toastList = toastApi?.items ?? toastApi?.toasts ?? [];
@@ -72,12 +69,10 @@ export default function App() {
     logEvent("app_open", { path: window.location.pathname });
   }, []);
 
-  // Sync antar tab (jaga-jaga kalau admin dibuka di tab sebelah)
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key?.includes("hangout_card_config_v1")) {
-        const newC = loadConfig();
-        setCfg(newC);
+        setCfg(loadConfig());
       }
       if (e.key?.includes("hangout_card_state_v1")) {
         setState(loadState());
@@ -95,32 +90,15 @@ export default function App() {
   }, [loc.pathname, nav, state.step]);
 
   const onResetProgress = () => {
-    if (!confirm("Reset progress? (Config Admin tetap)")) return;
+    if (!confirm("Reset progress?")) return;
     resetState();
-    const next = loadState();
-    setState(next);
-    logEvent("reset_progress");
-    push("Reset", "Progress direset.");
-    nav("/", { replace: true });
-  };
-
-  const restartToStart = () => {
-    const next: AppState = {
-      ...state,
-      step: 0,
-      unlocked: false,
-      chosenPlaceId: undefined,
-      chosenOutfitId: undefined,
-    };
-    saveState(next);
-    setState(next);
+    setState(loadState());
     nav("/", { replace: true });
   };
 
   return (
     <>
       <Header onReset={onResetProgress} />
-
       <Layout cfg={cfg} state={state} onReset={onResetProgress}>
         <Routes>
           <Route path="/" element={<Intro3D cfg={cfg} state={state} setState={setState} />} />
@@ -134,9 +112,7 @@ export default function App() {
           <Route path="/404" element={<NotFound />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>
-        <button style={{ display: "none" }} onClick={restartToStart} />
       </Layout>
-
       <ToastAreaAny items={toastList} toasts={toastList} />
     </>
   );
