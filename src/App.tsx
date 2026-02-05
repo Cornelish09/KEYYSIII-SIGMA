@@ -34,22 +34,23 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
-  // ✅ LOGIKA SINKRONISASI TOTAL (SUMBER KEBENARAN: FIREBASE)
+  // ✅ LOGIKA SINKRONISASI SAT SET (REALTIME)
+  // Pastikan path ini SAMA PERSIS dengan yang ada di Admin.tsx ("configs/main-config")
   React.useEffect(() => {
-    const docRef = doc(db, "configs", "main-config");
-    
+    const docRef = doc(db, "configs", "main-config"); //
+
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data() as ContentConfig;
         
-        // Paksa ganti state UI
+        // 1. Update State UI Langsung (Biar User langsung liat perubahan)
         setCfg(cloudData);
         
-        // Paksa simpan ke storage agar saat refresh data cloud tetap ada
+        // 2. Simpan ke Local Storage (Backup biar kalo refresh data ga ilang)
         saveConfig(cloudData); 
         localStorage.setItem("hangout_card_config_v1", JSON.stringify(cloudData));
         
-        console.log("🔔 Cloud Sync: Data terbaru berhasil diterapkan ke semua user.");
+        console.log("🔔 Cloud Sync: Data realtime masuk!");
       }
     }, (error) => {
       console.error("Firebase Sync Error:", error);
@@ -95,6 +96,11 @@ export default function App() {
     setState(loadState());
     nav("/", { replace: true });
   };
+
+  // State sinkronisasi ke storage
+  React.useEffect(() => {
+    saveState(state);
+  }, [state]);
 
   return (
     <>
