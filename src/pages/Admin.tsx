@@ -36,10 +36,13 @@ export function Admin() {
   };
 
   // --- LOGIKA PENYIMPANAN ---
-  // Fokus simpan ke state & local storage dulu supaya gak lag pas ngetik
+  // GANTI: Supaya update state lebih reaktif
   const updateConfig = (newCfg: ContentConfig) => {
-    setCfg(newCfg);     
-    saveConfig(newCfg); 
+    setCfg(prev => {
+      const updated = { ...prev, ...newCfg };
+      saveConfig(updated); // Simpan ke local storage
+      return updated;
+    });
   };
 
   const handleSave = async () => {
@@ -150,6 +153,19 @@ export function Admin() {
     updateConfig({ ...cfg, outfits: { ...(cfg.outfits || { headline: "Outfit", subtitle: "Style" }), items: [newItem, ...(cfg.outfits?.items || [])] } });
   };
 
+  const addRundownItem = () => {
+    const currentRundown = cfg.rundown || [];
+    const newItem = { time: "00:00", label: "BARU", desc: "", type: "static" };
+    updateConfig({ ...cfg, rundown: [...currentRundown, newItem] });
+  };
+
+  const removeRundownItem = (idx: number) => {
+    if(!confirm("Hapus jadwal ini?")) return;
+    const newRd = [...(cfg.rundown || [])];
+    newRd.splice(idx, 1);
+    updateConfig({ ...cfg, rundown: newRd });
+  };
+
   const removeItem = (type: 'place' | 'outfit', idx: number) => {
     if(!confirm("Yakin hapus?")) return;
     if (type === 'place') {
@@ -227,47 +243,91 @@ export function Admin() {
         {activeTab === 'general' && (
           <div>
             <div className="section-title">General Settings</div>
+            
+            {/* 1. MUSIC & LETTER */}
             <div className="card">
               <label className="label">Background Music (MP3 URL)</label>
               <input className="input" value={cfg.music || ""} onChange={e => updateConfig({...cfg, music: e.target.value})} placeholder="/audio/song.mp3" />
             </div>
+            
             <div className="card">
               <label className="label">Isi Surat (Letter)</label>
               <textarea className="textarea" style={{ height: 200 }} value={cfg.letter?.text || ""} onChange={e => updateConfig({...cfg, letter: { ...cfg.letter, text: e.target.value }})} />
             </div>
 
+            {/* 2. RUNDOWN MANAGER */}
             <div className="card">
-              <h3 style={{fontSize:16, marginBottom:20}}>Edit Rundown Acara</h3>
-              {cfg.rundown?.map((rd, idx) => (
-                <div key={idx} style={{display:'flex', gap:10, marginBottom:10, background:'#0f172a', padding:10, borderRadius:8}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
+                <h3 style={{fontSize:16, margin:0}}>Edit Rundown Acara</h3>
+                <button 
+                  className="btn btn-success" 
+                  style={{padding:'5px 12px', fontSize:12}}
+                  onClick={() => {
+                    const currentRd = cfg.rundown || [];
+                    const newItem = { time: "16:30", label: "BARU", desc: "Deskripsi...", type: "static" };
+                    updateConfig({...cfg, rundown: [...currentRd, newItem]});
+                  }}
+                >
+                  + Tambah Jadwal
+                </button>
+              </div>
+
+              {(cfg.rundown || []).length === 0 && (
+                <div style={{textAlign:'center', padding:'20px', border:'1px dashed #334155', borderRadius:8, color:'#64748b', fontSize:13}}>
+                  Belum ada rundown. Klik tombol tambah di atas.
+                </div>
+              )}
+
+              {(cfg.rundown || []).map((rd, idx) => (
+                <div key={idx} style={{display:'flex', gap:10, marginBottom:10, background:'#0f172a', padding:10, borderRadius:8, alignItems:'center'}}>
                   <input className="input" style={{flex:1}} value={rd.time} onChange={(e) => {
-                    const newRd = [...cfg.rundown];
+                    const newRd = [...cfg.rundown!];
                     newRd[idx].time = e.target.value;
                     updateConfig({...cfg, rundown: newRd});
                   }} placeholder="Jam" />
+                  
                   <input className="input" style={{flex:1}} value={rd.label} onChange={(e) => {
-                    const newRd = [...cfg.rundown];
+                    const newRd = [...cfg.rundown!];
                     newRd[idx].label = e.target.value;
                     updateConfig({...cfg, rundown: newRd});
                   }} placeholder="Label" />
+                  
                   <input className="input" style={{flex:2}} value={rd.desc} onChange={(e) => {
-                    const newRd = [...cfg.rundown];
+                    const newRd = [...cfg.rundown!];
                     newRd[idx].desc = e.target.value;
                     updateConfig({...cfg, rundown: newRd});
                   }} placeholder="Deskripsi" />
-                  <select className="input" style={{flex:1}} value={rd.type} onChange={(e) => {
-                    const newRd = [...cfg.rundown];
+                  
+                  <select className="input" style={{flex:1.2}} value={rd.type} onChange={(e) => {
+                    const newRd = [...cfg.rundown!];
                     newRd[idx].type = e.target.value as any;
                     updateConfig({...cfg, rundown: newRd});
                   }}>
-                    <option value="static">Static</option>
-                    <option value="dinner">Dinner (User)</option>
-                    <option value="snack">Snack (User)</option>
-                    <option value="dessert">Dessert (User)</option>
+                    <option value="static">Static (Teks)</option>
+                    <option value="dinner">Dinner (Pilihan User)</option>
+                    <option value="snack">Snack (Pilihan User)</option>
+                    <option value="dessert">Dessert (Pilihan User)</option>
                   </select>
+
+                  <button 
+                    onClick={() => {
+                      if(confirm("Hapus baris ini?")) {
+                        const newRd = [...cfg.rundown!];
+                        newRd.splice(idx, 1);
+                        updateConfig({...cfg, rundown: newRd});
+                      }
+                    }}
+                    style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:18, fontWeight:'bold', padding:'0 5px'}}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
-              <p style={{fontSize:11, color:'#64748b'}}>* Rundown otomatis tersimpan di browser, klik <b>PUBLISH</b> untuk kirim ke HP pasangan.</p>
+              
+              <p style={{fontSize:11, color:'#64748b', marginTop:15}}>
+                * <b>Static:</b> Teks deskripsi bebas. <br/>
+                * <b>Pilihan User:</b> Otomatis nampilin nama tempat yang dipilih Keysia nanti.
+              </p>
             </div>
           </div>
         )}
