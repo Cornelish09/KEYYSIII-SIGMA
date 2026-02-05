@@ -320,11 +320,59 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            <div className="rc-body">
+            {/* --- BAGIAN RUNDOWN DI NOTA (TENGAH & RAPI) --- */}
+            <div className="rc-body" style={{ marginTop: 20 }}>
+              {/* Judul Kecil Itinerary */}
+              <div style={{ 
+                textAlign: 'center', 
+                fontSize: 9, 
+                fontWeight: 'bold', 
+                letterSpacing: 2, 
+                marginBottom: 15, 
+                borderBottom: '1px dashed #eee', 
+                paddingBottom: 5 
+              }}>
+                OFFICIAL ITINERARY
+              </div>
+
               {rundown.map((item, idx) => (
-                <div key={idx} className="rc-item">
-                  <span className="rc-time">{item.time.split('-')[0]}</span>
-                  <span className="rc-desc">{item.label}: {item.desc}</span>
+                <div key={idx} style={{ 
+                  textAlign: 'center', 
+                  marginBottom: 15, 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center' 
+                }}>
+                  {/* LABEL: Sekarang di tengah dan bold */}
+                  <span style={{ 
+                    fontSize: 9, 
+                    fontWeight: 800, 
+                    textTransform: 'uppercase', 
+                    color: '#666',
+                    letterSpacing: 1
+                  }}>
+                    {item.label}
+                  </span>
+                  
+                  {/* TIME: Tampil FULL (gak kepotong lagi) */}
+                  <span style={{ 
+                    fontSize: 12, 
+                    fontWeight: 'bold', 
+                    fontFamily: "'Space Mono', monospace", 
+                    margin: '2px 0' 
+                  }}>
+                    {item.time} {/* Lo input 16.30 - 17.30, munculnya bakal full gini */}
+                  </span>
+                  
+                  {/* DESC: Deskripsi di bawahnya */}
+                  <span style={{ 
+                    fontSize: 10, 
+                    fontStyle: 'italic', 
+                    color: '#444',
+                    maxWidth: '80%' 
+                  }}>
+                    {item.desc}
+                  </span>
                 </div>
               ))}
             </div>
