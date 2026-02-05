@@ -325,14 +325,39 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
             </div>
 
             <div className="rc-footer">
-              <div className="barcode-fake">|| | ||| || |||</div>
+              {/* Barcode Asli Code128 - Link Spotify */}
+              <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px' }}>
+                <img 
+                  src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}&scale=2&height=10&includetext=false`} 
+                  alt="Spotify Barcode"
+                  style={{ 
+                    maxWidth: '100%', 
+                    height: '40px', // Sesuaikan tinggi biar tetep masuk di nota
+                    display: 'block',
+                    margin: '0 auto'
+                  }} 
+                />
+              </div>
+              
               <div style={{fontSize:10, letterSpacing:2}}>INV-CODE-{reservationDate.replace(/-/g,'')}</div>
               <div className="rc-note">"Please save this receipt as a valid ticket."</div>
+              
               <button 
                 onClick={handleDownloadImage}
                 disabled={isCapturing}
                 data-html2canvas-ignore
-                style={{marginTop:15, width:'100%', padding:10, background: isCapturing ? '#999' : '#000', color:'#fff', border:'none', cursor:'pointer', fontSize:10, textTransform:'uppercase', fontWeight:'bold'}}
+                style={{
+                  marginTop:15, 
+                  width:'100%', 
+                  padding:10, 
+                  background: isCapturing ? '#999' : '#000', 
+                  color:'#fff', 
+                  border:'none', 
+                  cursor:'pointer', 
+                  fontSize:10, 
+                  textTransform:'uppercase', 
+                  fontWeight:'bold'
+                }}
               >
                 {isCapturing ? "PRINTING IMAGE..." : "CLICK TO SAVE AS IMAGE 📸"}
               </button>
