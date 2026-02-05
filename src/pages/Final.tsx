@@ -324,15 +324,28 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <span>PRICELESS 💖</span>
             </div>
 
+            {/* CALL TO ACTION (INSTRUKSI SCAN) */}
+            <div style={{ 
+              textAlign: 'center', 
+              fontSize: '9px', 
+              color: '#444', 
+              marginTop: '10px', 
+              borderTop: '1px dashed #eee', 
+              paddingTop: '10px',
+              fontStyle: 'italic'
+            }}>
+              --- SCAN THE BARCODE TO UNLOCK OUR VIBE ---
+            </div>
+
             <div className="rc-footer">
               {/* Barcode Asli Code128 - Link Spotify */}
-              <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px' }}>
+              <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px', marginTop: '5px' }}>
                 <img 
                   src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}&scale=2&height=10&includetext=false`} 
                   alt="Spotify Barcode"
                   style={{ 
                     maxWidth: '100%', 
-                    height: '40px', // Sesuaikan tinggi biar tetep masuk di nota
+                    height: '40px', 
                     display: 'block',
                     margin: '0 auto'
                   }} 
