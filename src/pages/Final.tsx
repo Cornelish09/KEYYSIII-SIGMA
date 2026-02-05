@@ -320,25 +320,25 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            {/* --- RUNDOWN: ULTRA CLEAN LOOK --- */}
-            <div className="rc-body" style={{ marginTop: 25 }}>
-              {/* PEMBATAS ATAS PUTUS-PUTUS */}
-              <div style={{ borderTop: '1px dashed #000', marginBottom: 15 }}></div>
+            {/* --- RUNDOWN: JAM | LABEL | DESC (ULTRA CLEAN & RAPET) --- */}
+            <div className="rc-body" style={{ marginTop: 15 }}>
+              {/* CUMA SATU GARIS PUTUS-PUTUS ATAS */}
+              <div style={{ borderTop: '1px dashed #000', marginBottom: 8 }}></div>
 
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
-                  padding: '6px 0', 
+                  padding: '4px 0', // Jarak antar baris dirapetin
                   fontSize: '11px' 
                 }}>
                   {/* JAM (KIRI) */}
-                  <span style={{ width: '90px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
+                  <span style={{ width: '85px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
                     {item.time}
                   </span>
 
                   {/* LABEL (TENGAH) */}
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 800, textTransform: 'uppercase', padding: '0 10px', letterSpacing: '0.5px' }}>
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 800, textTransform: 'uppercase', padding: '0 5px' }}>
                     {item.label}
                   </span>
 
@@ -349,28 +349,28 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                 </div>
               ))}
 
-              {/* PEMBATAS BAWAH PUTUS-PUTUS */}
-              <div style={{ borderBottom: '1px dashed #000', marginTop: 15 }}></div>
+              {/* CUMA SATU GARIS PUTUS-PUTUS BAWAH */}
+              <div style={{ borderBottom: '1px dashed #000', marginTop: 8 }}></div>
             </div>
 
-            <div className="rc-total">
+            <div className="rc-total" style={{ marginTop: 10, paddingTop: 0, border: 'none' }}>
               <span>TOTAL PRICE:</span>
               <span>PRICELESS 💖</span>
             </div>
 
             <div className="rc-footer">
-              <div style={{ textAlign: 'center', fontSize: '9px', color: '#444', marginTop: '15px', fontStyle: 'italic' }}>
+              <div style={{ textAlign: 'center', fontSize: '9px', color: '#444', marginTop: '10px', fontStyle: 'italic' }}>
                 --- SCAN TO PLAY OUR BEAT ---
               </div>
 
-              {/* QR CODE - DIRECT TO YOUR PLAYLIST */}
-              <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
+              {/* QR CODE - TETEP PAKE SPOTIFY LO */}
+              <div className="qr-container" style={{ textAlign: 'center', margin: '10px 0' }}>
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
                   alt="Spotify QR"
                   style={{ 
-                    width: '95px', 
-                    height: '95px', 
+                    width: '90px', 
+                    height: '90px', 
                     display: 'block',
                     margin: '0 auto',
                     border: '1px solid #000',
@@ -383,14 +383,14 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <div style={{fontSize:10, letterSpacing:2, fontWeight:'bold'}}>
                 INV-CODE-{reservationDate.replace(/-/g,'')}
               </div>
-              <div className="rc-note">"Please save this receipt as a valid ticket."</div>
+              <div className="rc-note" style={{marginTop: 5}}>"Please save this receipt as a valid ticket."</div>
               
               <button 
                 onClick={handleDownloadImage}
                 disabled={isCapturing}
                 data-html2canvas-ignore
                 style={{
-                  marginTop:20, 
+                  marginTop:15, 
                   width:'100%', 
                   padding:12, 
                   background: isCapturing ? '#999' : '#000', 
