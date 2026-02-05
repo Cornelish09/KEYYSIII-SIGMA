@@ -47,16 +47,29 @@ export function Admin() {
 
   const handleSave = async () => {
     try {
-      setSaveStatus("idle");
-      // Alamat dokumen SAMA dengan yang di App.tsx (main-config)
-      await setDoc(doc(db, "configs", "main-config"), cfg);
+      const docRef = doc(db, "configs", "main-config");
       
-      setSaveStatus("saved");
-      alert("🚀 PUBLISH BERHASIL! Semua user sekarang melihat perubahan lo.");
-      setTimeout(() => setSaveStatus("idle"), 2000);
-    } catch (err) {
-      console.error(err);
-      alert("❌ GAGAL PUBLISH: Pastikan koneksi aman atau ukuran gambar tidak terlalu besar!");
+      // 1. Ambil data terbaru dari state admin
+      const dataToSave = { ...cfg };
+
+      // 2. Kirim ke Firebase (Cloud)
+      await setDoc(docRef, dataToSave);
+      
+      // 3. PAKSA simpan ke LocalStorage Laptop lo juga (biar gak bentrok)
+      saveConfig(dataToSave); 
+      localStorage.setItem("hangout_card_config_v1", JSON.stringify(dataToSave));
+
+      // 4. Kasih tau browser kalau ada perubahan data (untuk tab user di laptop)
+      window.dispatchEvent(new Event("storage"));
+
+      alert("✅ Publish Berhasil! Coba cek HP, harusnya udah berubah.");
+      
+      // Log aktivitas biar lo tau ini jalan
+      logEvent("admin_save_success", { time: new Date().getTime() });
+      
+    } catch (e) {
+      console.error("Error pas mau save:", e);
+      alert("Waduh, gagal connect ke Firebase. Cek internet bro!");
     }
   };
 
