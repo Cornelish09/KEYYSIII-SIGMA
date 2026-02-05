@@ -320,51 +320,30 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            {/* --- BAGIAN RUNDOWN NOTA ULTRA CLEAN --- */}
+            {/* --- RUNDOWN: ULTRA CLEAN LOOK --- */}
             <div className="rc-body" style={{ marginTop: 25 }}>
-              
               {/* PEMBATAS ATAS PUTUS-PUTUS */}
               <div style={{ borderTop: '1px dashed #000', marginBottom: 15 }}></div>
 
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
-                  alignItems: 'baseline', // Biar teks rata bawahnya enak diliat
+                  alignItems: 'baseline', 
                   padding: '6px 0', 
-                  fontSize: '11px'
+                  fontSize: '11px' 
                 }}>
-                  {/* JAM (KIRI) - Fixed width biar rapi sejajar */}
-                  <span style={{ 
-                    width: '90px', 
-                    fontWeight: 'bold', 
-                    fontFamily: "'Space Mono', monospace",
-                    flexShrink: 0 
-                  }}>
+                  {/* JAM (KIRI) */}
+                  <span style={{ width: '90px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
                     {item.time}
                   </span>
 
-                  {/* LABEL (TENGAH) - Selalu Center */}
-                  <span style={{ 
-                    flex: 1, 
-                    textAlign: 'center', 
-                    fontWeight: 800, 
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    padding: '0 10px'
-                  }}>
+                  {/* LABEL (TENGAH) */}
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 800, textTransform: 'uppercase', padding: '0 10px', letterSpacing: '0.5px' }}>
                     {item.label}
                   </span>
 
-                  {/* KETERANGAN (KANAN) - Rata Kanan */}
-                  <span style={{ 
-                    width: '110px', 
-                    textAlign: 'right', 
-                    fontSize: '9px', 
-                    fontStyle: 'italic',
-                    color: '#333',
-                    flexShrink: 0,
-                    lineHeight: '1.1'
-                  }}>
+                  {/* KETERANGAN (KANAN) */}
+                  <span style={{ width: '110px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', color: '#333', flexShrink: 0, lineHeight: '1.1' }}>
                     {item.desc}
                   </span>
                 </div>
@@ -379,40 +358,31 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <span>PRICELESS 💖</span>
             </div>
 
-            {/* CALL TO ACTION (INSTRUKSI SCAN) */}
-            <div style={{ 
-              textAlign: 'center', 
-              fontSize: '9px', 
-              color: '#444', 
-              marginTop: '15px', 
-              borderTop: '1px dashed #eee', 
-              paddingTop: '10px',
-              fontStyle: 'italic',
-              letterSpacing: '1px'
-            }}>
-              --- SCAN TO UNLOCK OUR VIBE ---
-            </div>
-
             <div className="rc-footer">
-              {/* QR CODE - SEKARANG PAKE SPOTIFY LO */}
+              <div style={{ textAlign: 'center', fontSize: '9px', color: '#444', marginTop: '15px', fontStyle: 'italic' }}>
+                --- SCAN TO PLAY OUR BEAT ---
+              </div>
+
+              {/* QR CODE - DIRECT TO YOUR PLAYLIST */}
               <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
                   alt="Spotify QR"
                   style={{ 
-                    width: '100px', 
-                    height: '100px', 
+                    width: '95px', 
+                    height: '95px', 
                     display: 'block',
                     margin: '0 auto',
-                    border: '2px solid #000',
-                    padding: '5px',
+                    border: '1px solid #000',
+                    padding: '4px',
                     backgroundColor: '#fff'
                   }} 
                 />
-                <div style={{ fontSize: '8px', marginTop: '5px', fontWeight: 'bold' }}>SCAN TO PLAY PLAYLIST</div>
               </div>
               
-              <div style={{fontSize:10, letterSpacing:2}}>INV-CODE-{reservationDate.replace(/-/g,'')}</div>
+              <div style={{fontSize:10, letterSpacing:2, fontWeight:'bold'}}>
+                INV-CODE-{reservationDate.replace(/-/g,'')}
+              </div>
               <div className="rc-note">"Please save this receipt as a valid ticket."</div>
               
               <button 
@@ -420,9 +390,9 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                 disabled={isCapturing}
                 data-html2canvas-ignore
                 style={{
-                  marginTop:15, 
+                  marginTop:20, 
                   width:'100%', 
-                  padding:10, 
+                  padding:12, 
                   background: isCapturing ? '#999' : '#000', 
                   color:'#fff', 
                   border:'none', 
