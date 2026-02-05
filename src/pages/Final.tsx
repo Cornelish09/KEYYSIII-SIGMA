@@ -301,59 +301,51 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
           <div className="receipt-paper" ref={receiptRef}>
             <button className="rc-close-btn" data-html2canvas-ignore onClick={() => setShowReceipt(false)}>✕</button>
             
-            <div className="rc-header">
+            {/* HEADER DENGAN GARIS TEBAL DI BAWAHNYA */}
+            <div className="rc-header" style={{ borderBottom: '2px solid #000', paddingBottom: '15px', marginBottom: '0' }}>
               <div className="rc-title">DATE NIGHT RECEIPT</div>
               <div className="rc-sub">ISSUED BY: OFFICIAL DATE PROTOCOL</div>
               
-              {/* BAGIAN TANGGAL DI NOTA */}
-              <div className="rc-info-row">
+              <div className="rc-info-row" style={{ border: 'none', marginTop: '10px' }}>
                 <div className="rc-info-item">
                   <span className="rc-info-label">ISSUED DATE</span>
                   <span className="rc-info-val">{new Date().toLocaleDateString('id-ID')}</span>
                 </div>
                 <div className="rc-info-item right">
                   <span className="rc-info-label">RESERVATION FOR</span>
-                  <span className="rc-info-val" style={{color:'#000', borderBottom:'1px solid #000'}}>
+                  <span className="rc-info-val">
                     {formatDateIndo(reservationDate)}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* --- RUNDOWN: JAM | LABEL | DESC (ULTRA CLEAN & RAPET) --- */}
-            <div className="rc-body" style={{ marginTop: 15 }}>
-              {/* CUMA SATU GARIS PUTUS-PUTUS ATAS */}
-              <div style={{ borderTop: '1px dashed #000', marginBottom: 8 }}></div>
-
+            {/* BODY RUNDOWN - ATASNYA POLOS (KARENA UDAH ADA GARIS TEBAL HEADER) */}
+            <div className="rc-body" style={{ marginTop: '10px' }}>
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
-                  padding: '4px 0', // Jarak antar baris dirapetin
+                  padding: '4px 0', 
                   fontSize: '11px' 
                 }}>
-                  {/* JAM (KIRI) */}
                   <span style={{ width: '85px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
                     {item.time}
                   </span>
-
-                  {/* LABEL (TENGAH) */}
                   <span style={{ flex: 1, textAlign: 'center', fontWeight: 800, textTransform: 'uppercase', padding: '0 5px' }}>
                     {item.label}
                   </span>
-
-                  {/* KETERANGAN (KANAN) */}
                   <span style={{ width: '110px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', color: '#333', flexShrink: 0, lineHeight: '1.1' }}>
                     {item.desc}
                   </span>
                 </div>
               ))}
 
-              {/* CUMA SATU GARIS PUTUS-PUTUS BAWAH */}
-              <div style={{ borderBottom: '1px dashed #000', marginTop: 8 }}></div>
+              {/* CUMA SATU GARIS PUTUS-PUTUS DI BAWAH RUNDOWN */}
+              <div style={{ borderBottom: '1px dashed #000', marginTop: '8px' }}></div>
             </div>
 
-            <div className="rc-total" style={{ marginTop: 10, paddingTop: 0, border: 'none' }}>
+            <div className="rc-total" style={{ marginTop: '10px', paddingTop: '0', border: 'none' }}>
               <span>TOTAL PRICE:</span>
               <span>PRICELESS 💖</span>
             </div>
@@ -363,7 +355,6 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                 --- SCAN TO PLAY OUR BEAT ---
               </div>
 
-              {/* QR CODE - TETEP PAKE SPOTIFY LO */}
               <div className="qr-container" style={{ textAlign: 'center', margin: '10px 0' }}>
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
