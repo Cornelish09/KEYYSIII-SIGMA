@@ -329,25 +329,28 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               textAlign: 'center', 
               fontSize: '9px', 
               color: '#444', 
-              marginTop: '10px', 
+              marginTop: '15px', 
               borderTop: '1px dashed #eee', 
               paddingTop: '10px',
-              fontStyle: 'italic'
+              fontStyle: 'italic',
+              letterSpacing: '1px'
             }}>
-              --- SCAN THE BARCODE TO UNLOCK OUR VIBE ---
+              --- SCAN TO UNLOCK OUR VIBE ---
             </div>
 
             <div className="rc-footer">
-              {/* Barcode Asli Code128 - Link Spotify */}
-              <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px', marginTop: '5px' }}>
+              {/* GANTI KE QR CODE BIAR 100% BISA DISCAN */}
+              <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
                 <img 
-                  src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}&scale=2&height=10&includetext=false`} 
-                  alt="Spotify Barcode"
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}`} 
+                  alt="Spotify QR"
                   style={{ 
-                    maxWidth: '100%', 
-                    height: '40px', 
+                    width: '100px', 
+                    height: '100px', 
                     display: 'block',
-                    margin: '0 auto'
+                    margin: '0 auto',
+                    border: '2px solid #000',
+                    padding: '5px'
                   }} 
                 />
               </div>
