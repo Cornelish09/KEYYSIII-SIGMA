@@ -317,9 +317,6 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            {/* SATU-SATUNYA GARIS PUTUS-PUTUS ATAS */}
-            <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
-
             <div className="rc-body">
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
