@@ -324,58 +324,71 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <span>PRICELESS 💖</span>
             </div>
 
-            {/* CALL TO ACTION (INSTRUKSI SCAN) */}
-            <div style={{ 
-              textAlign: 'center', 
-              fontSize: '9px', 
-              color: '#444', 
-              marginTop: '15px', 
-              borderTop: '1px dashed #eee', 
-              paddingTop: '10px',
-              fontStyle: 'italic',
-              letterSpacing: '1px'
-            }}>
-              --- SCAN TO UNLOCK OUR VIBE ---
-            </div>
+            {/* AREA BARCODE KHAS NOTA */}
+            <div className="rc-footer" style={{ marginTop: '20px' }}>
+              
+              {/* Garis pemisah khas printer thermal */}
+              <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
+              
+              <div style={{ fontSize: '9px', marginBottom: '8px', fontWeight: 'bold' }}>
+                CUSTOMER VIBE CHECK:
+              </div>
 
-            <div className="rc-footer">
-              {/* GANTI KE QR CODE BIAR 100% BISA DISCAN */}
-              <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
+              {/* BARCODE CODE128 DENGAN LINK YANG SUDAH DIPENDEKKAN */}
+              <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px' }}>
                 <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}`} 
-                  alt="Spotify QR"
+                  /* Gue potong link-nya jadi versi pendek biar garis barcodenya gak terlalu rapat */
+                  src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw")}&scale=2&height=12&includetext=false&backgroundcolor=ffffff`} 
+                  alt="Spotify Barcode"
                   style={{ 
-                    width: '100px', 
-                    height: '100px', 
+                    maxWidth: '90%', 
+                    height: '50px', 
                     display: 'block',
                     margin: '0 auto',
-                    border: '2px solid #000',
-                    padding: '5px'
+                    /* Efek tinta printer thermal agak mbleber dikit tapi kontras */
+                    filter: 'contrast(2) grayscale(1)' 
                   }} 
                 />
               </div>
               
-              <div style={{fontSize:10, letterSpacing:2}}>INV-CODE-{reservationDate.replace(/-/g,'')}</div>
-              <div className="rc-note">"Please save this receipt as a valid ticket."</div>
+              {/* ID TRANSAKSI BIAR MAKIN NOTA */}
+              <div style={{ 
+                fontSize: '11px', 
+                fontFamily: '"Space Mono", monospace', 
+                letterSpacing: '3px',
+                fontWeight: 'bold',
+                marginTop: '5px'
+              }}>
+                INV-CODE-{reservationDate.replace(/-/g,'')}
+              </div>
+
+              <div style={{ fontSize: '8px', marginTop: '10px', textTransform: 'uppercase' }}>
+                --- SCAN BARCODE ABOVE FOR OUR PLAYLIST ---
+              </div>
+
+              <div className="rc-note" style={{ marginTop: '15px', fontSize: '9px' }}>
+                "Please save this receipt as a valid ticket."
+              </div>
               
               <button 
                 onClick={handleDownloadImage}
                 disabled={isCapturing}
                 data-html2canvas-ignore
                 style={{
-                  marginTop:15, 
+                  marginTop:20, 
                   width:'100%', 
-                  padding:10, 
+                  padding:12, 
                   background: isCapturing ? '#999' : '#000', 
                   color:'#fff', 
-                  border:'none', 
+                  border:'1px solid #000', 
                   cursor:'pointer', 
                   fontSize:10, 
                   textTransform:'uppercase', 
-                  fontWeight:'bold'
+                  fontWeight:'bold',
+                  letterSpacing: '1px'
                 }}
               >
-                {isCapturing ? "PRINTING IMAGE..." : "CLICK TO SAVE AS IMAGE 📸"}
+                {isCapturing ? "GENERATING RECEIPT..." : "CLICK TO SAVE AS IMAGE 📸"}
               </button>
             </div>
           </div>
