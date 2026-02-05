@@ -324,71 +324,42 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <span>PRICELESS 💖</span>
             </div>
 
-            {/* AREA BARCODE KHAS NOTA */}
-            <div className="rc-footer" style={{ marginTop: '20px' }}>
-              
-              {/* Garis pemisah khas printer thermal */}
-              <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
-              
-              <div style={{ fontSize: '9px', marginBottom: '8px', fontWeight: 'bold' }}>
-                CUSTOMER VIBE CHECK:
-              </div>
-
-              {/* BARCODE CODE128 DENGAN LINK YANG SUDAH DIPENDEKKAN */}
+            <div className="rc-footer">
+              {/* Barcode Asli Code128 - Link Spotify */}
               <div className="barcode-container" style={{ textAlign: 'center', marginBottom: '5px' }}>
                 <img 
-                  /* Gue potong link-nya jadi versi pendek biar garis barcodenya gak terlalu rapat */
-                  src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw")}&scale=2&height=12&includetext=false&backgroundcolor=ffffff`} 
+                  src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}&scale=2&height=10&includetext=false`} 
                   alt="Spotify Barcode"
                   style={{ 
-                    maxWidth: '90%', 
-                    height: '50px', 
+                    maxWidth: '100%', 
+                    height: '40px', // Sesuaikan tinggi biar tetep masuk di nota
                     display: 'block',
-                    margin: '0 auto',
-                    /* Efek tinta printer thermal agak mbleber dikit tapi kontras */
-                    filter: 'contrast(2) grayscale(1)' 
+                    margin: '0 auto'
                   }} 
                 />
               </div>
               
-              {/* ID TRANSAKSI BIAR MAKIN NOTA */}
-              <div style={{ 
-                fontSize: '11px', 
-                fontFamily: '"Space Mono", monospace', 
-                letterSpacing: '3px',
-                fontWeight: 'bold',
-                marginTop: '5px'
-              }}>
-                INV-CODE-{reservationDate.replace(/-/g,'')}
-              </div>
-
-              <div style={{ fontSize: '8px', marginTop: '10px', textTransform: 'uppercase' }}>
-                --- SCAN BARCODE ABOVE FOR OUR PLAYLIST ---
-              </div>
-
-              <div className="rc-note" style={{ marginTop: '15px', fontSize: '9px' }}>
-                "Please save this receipt as a valid ticket."
-              </div>
+              <div style={{fontSize:10, letterSpacing:2}}>INV-CODE-{reservationDate.replace(/-/g,'')}</div>
+              <div className="rc-note">"Please save this receipt as a valid ticket."</div>
               
               <button 
                 onClick={handleDownloadImage}
                 disabled={isCapturing}
                 data-html2canvas-ignore
                 style={{
-                  marginTop:20, 
+                  marginTop:15, 
                   width:'100%', 
-                  padding:12, 
+                  padding:10, 
                   background: isCapturing ? '#999' : '#000', 
                   color:'#fff', 
-                  border:'1px solid #000', 
+                  border:'none', 
                   cursor:'pointer', 
                   fontSize:10, 
                   textTransform:'uppercase', 
-                  fontWeight:'bold',
-                  letterSpacing: '1px'
+                  fontWeight:'bold'
                 }}
               >
-                {isCapturing ? "GENERATING RECEIPT..." : "CLICK TO SAVE AS IMAGE 📸"}
+                {isCapturing ? "PRINTING IMAGE..." : "CLICK TO SAVE AS IMAGE 📸"}
               </button>
             </div>
           </div>
