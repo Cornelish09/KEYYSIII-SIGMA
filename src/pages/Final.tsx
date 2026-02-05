@@ -320,63 +320,58 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            <div className="rc-body" style={{ marginTop: 20, borderTop: '1px solid #000', paddingTop: 10 }}>
-              {/* Header Tabel Mini biar makin rapi */}
-              <div style={{ 
-                display: 'flex', 
-                fontSize: '8px', 
-                fontWeight: 'bold', 
-                color: '#666', 
-                marginBottom: '10px',
-                textTransform: 'uppercase',
-                letterSpacing: '1px'
-              }}>
-                <span style={{ width: '80px' }}>Time</span>
-                <span style={{ flex: 1, textAlign: 'center' }}>Activity</span>
-                <span style={{ width: '120px', textAlign: 'right' }}>Note</span>
-              </div>
+            {/* --- BAGIAN RUNDOWN NOTA ULTRA CLEAN --- */}
+            <div className="rc-body" style={{ marginTop: 25 }}>
+              
+              {/* PEMBATAS ATAS PUTUS-PUTUS */}
+              <div style={{ borderTop: '1px dashed #000', marginBottom: 15 }}></div>
 
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
-                  alignItems: 'center', 
-                  padding: '8px 0', 
-                  borderBottom: '1px solid #f0f0f0',
-                  fontSize: '10px'
+                  alignItems: 'baseline', // Biar teks rata bawahnya enak diliat
+                  padding: '6px 0', 
+                  fontSize: '11px'
                 }}>
-                  {/* JAM (KIRI) */}
+                  {/* JAM (KIRI) - Fixed width biar rapi sejajar */}
                   <span style={{ 
-                    width: '80px', 
+                    width: '90px', 
                     fontWeight: 'bold', 
-                    fontFamily: "'Space Mono', monospace" 
+                    fontFamily: "'Space Mono', monospace",
+                    flexShrink: 0 
                   }}>
                     {item.time}
                   </span>
 
-                  {/* LABEL (TENGAH) */}
+                  {/* LABEL (TENGAH) - Selalu Center */}
                   <span style={{ 
                     flex: 1, 
                     textAlign: 'center', 
                     fontWeight: 800, 
                     textTransform: 'uppercase',
-                    padding: '0 5px'
+                    letterSpacing: '0.5px',
+                    padding: '0 10px'
                   }}>
                     {item.label}
                   </span>
 
-                  {/* KETERANGAN (KANAN) */}
+                  {/* KETERANGAN (KANAN) - Rata Kanan */}
                   <span style={{ 
-                    width: '120px', 
+                    width: '110px', 
                     textAlign: 'right', 
                     fontSize: '9px', 
                     fontStyle: 'italic',
-                    lineHeight: '1.2',
-                    color: '#333'
+                    color: '#333',
+                    flexShrink: 0,
+                    lineHeight: '1.1'
                   }}>
                     {item.desc}
                   </span>
                 </div>
               ))}
+
+              {/* PEMBATAS BAWAH PUTUS-PUTUS */}
+              <div style={{ borderBottom: '1px dashed #000', marginTop: 15 }}></div>
             </div>
 
             <div className="rc-total">
@@ -399,10 +394,10 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
             </div>
 
             <div className="rc-footer">
-              {/* GANTI KE QR CODE BIAR 100% BISA DISCAN */}
+              {/* QR CODE - SEKARANG PAKE SPOTIFY LO */}
               <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
                 <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "https://spotify.com")}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
                   alt="Spotify QR"
                   style={{ 
                     width: '100px', 
@@ -410,9 +405,11 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                     display: 'block',
                     margin: '0 auto',
                     border: '2px solid #000',
-                    padding: '5px'
+                    padding: '5px',
+                    backgroundColor: '#fff'
                   }} 
                 />
+                <div style={{ fontSize: '8px', marginTop: '5px', fontWeight: 'bold' }}>SCAN TO PLAY PLAYLIST</div>
               </div>
               
               <div style={{fontSize:10, letterSpacing:2}}>INV-CODE-{reservationDate.replace(/-/g,'')}</div>
