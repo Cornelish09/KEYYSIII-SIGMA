@@ -34,23 +34,26 @@ export default function App() {
   const [cfg, setCfg] = React.useState<ContentConfig>(() => loadConfig());
   const [state, setState] = React.useState<AppState>(() => loadState());
 
-  // ✅ LOGIKA SINKRONISASI SAT SET (REALTIME)
-  // Pastikan path ini SAMA PERSIS dengan yang ada di Admin.tsx ("configs/main-config")
+  // ✅ LOGIKA SINKRONISASI REALTIME (FIREBASE -> UI)
   React.useEffect(() => {
-    const docRef = doc(db, "configs", "main-config"); //
+    // Path harus sama dengan Admin.tsx
+    const docRef = doc(db, "configs", "main-config"); 
 
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data() as ContentConfig;
         
-        // 1. Update State UI Langsung (Biar User langsung liat perubahan)
+        // 1. Update state di memori biar UI langsung ganti
         setCfg(cloudData);
         
-        // 2. Simpan ke Local Storage (Backup biar kalo refresh data ga ilang)
+        // 2. Timpa data di storage biar pas refresh gak balik ke data lama
         saveConfig(cloudData); 
         localStorage.setItem("hangout_card_config_v1", JSON.stringify(cloudData));
         
-        console.log("🔔 Cloud Sync: Data realtime masuk!");
+        // 3. Paksa trigger event storage biar browser "bangun" (Penting buat HP)
+        window.dispatchEvent(new Event("storage"));
+        
+        console.log("🔔 Cloud Sync: Berhasil sinkronisasi dari Firebase ke HP/Browser.");
       }
     }, (error) => {
       console.error("Firebase Sync Error:", error);
@@ -70,6 +73,7 @@ export default function App() {
     logEvent("app_open", { path: window.location.pathname });
   }, []);
 
+  // Listen perubahan storage (berguna jika admin & user di tab berbeda di device yang sama)
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key?.includes("hangout_card_config_v1")) {
@@ -97,7 +101,7 @@ export default function App() {
     nav("/", { replace: true });
   };
 
-  // State sinkronisasi ke storage
+  // Simpan state progress user ke storage
   React.useEffect(() => {
     saveState(state);
   }, [state]);
