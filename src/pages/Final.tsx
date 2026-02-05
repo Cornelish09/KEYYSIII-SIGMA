@@ -301,99 +301,99 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
           <div className="receipt-paper" ref={receiptRef}>
             <button className="rc-close-btn" data-html2canvas-ignore onClick={() => setShowReceipt(false)}>✕</button>
             
-            {/* HEADER DENGAN GARIS TEBAL DI BAWAHNYA */}
-            <div className="rc-header" style={{ borderBottom: '2px solid #000', paddingBottom: '15px', marginBottom: '0' }}>
-              <div className="rc-title">DATE NIGHT RECEIPT</div>
-              <div className="rc-sub">ISSUED BY: OFFICIAL DATE PROTOCOL</div>
+            {/* HEADER DENGAN GARIS LURUS TEBAL */}
+            <div className="rc-header" style={{ borderBottom: '2px solid #000', paddingBottom: '12px', marginBottom: '0' }}>
+              <div className="rc-title" style={{ fontSize: '20px', fontWeight: '900' }}>DATE NIGHT RECEIPT</div>
+              <div className="rc-sub" style={{ fontSize: '9px', letterSpacing: '1px' }}>OFFICIAL RESERVATION PROTOCOL</div>
               
-              <div className="rc-info-row" style={{ border: 'none', marginTop: '10px' }}>
+              <div className="rc-info-row" style={{ border: 'none', marginTop: '8px' }}>
                 <div className="rc-info-item">
-                  <span className="rc-info-label">ISSUED DATE</span>
-                  <span className="rc-info-val">{new Date().toLocaleDateString('id-ID')}</span>
+                  <span className="rc-info-label" style={{ fontSize: '7px' }}>ISSUED DATE</span>
+                  <span className="rc-info-val" style={{ fontSize: '10px' }}>{new Date().toLocaleDateString('id-ID')}</span>
                 </div>
                 <div className="rc-info-item right">
-                  <span className="rc-info-label">RESERVATION FOR</span>
-                  <span className="rc-info-val">
+                  <span className="rc-info-label" style={{ fontSize: '7px' }}>RESERVATION FOR</span>
+                  <span className="rc-info-val" style={{ fontSize: '10px' }}>
                     {formatDateIndo(reservationDate)}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* BODY RUNDOWN - ATASNYA POLOS (KARENA UDAH ADA GARIS TEBAL HEADER) */}
-            <div className="rc-body" style={{ marginTop: '10px' }}>
+            {/* BODY RUNDOWN - SUPER RAPET & CLEAN */}
+            <div className="rc-body" style={{ marginTop: '8px' }}>
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
-                  padding: '4px 0', 
+                  padding: '2px 0', // Jarak antar baris paling rapet
                   fontSize: '11px' 
                 }}>
-                  <span style={{ width: '85px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
+                  <span style={{ width: '80px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
                     {item.time}
                   </span>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 800, textTransform: 'uppercase', padding: '0 5px' }}>
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: '900', textTransform: 'uppercase', padding: '0 5px' }}>
                     {item.label}
                   </span>
-                  <span style={{ width: '110px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', color: '#333', flexShrink: 0, lineHeight: '1.1' }}>
+                  <span style={{ width: '100px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', color: '#000', flexShrink: 0, lineHeight: '1' }}>
                     {item.desc}
                   </span>
                 </div>
               ))}
 
-              {/* CUMA SATU GARIS PUTUS-PUTUS DI BAWAH RUNDOWN */}
-              <div style={{ borderBottom: '1px dashed #000', marginTop: '8px' }}></div>
+              {/* GARIS LURUS TEBAL DI BAWAH RUNDOWN */}
+              <div style={{ borderBottom: '2px solid #000', marginTop: '8px' }}></div>
             </div>
 
-            <div className="rc-total" style={{ marginTop: '10px', paddingTop: '0', border: 'none' }}>
+            <div className="rc-total" style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' }}>
               <span>TOTAL PRICE:</span>
               <span>PRICELESS 💖</span>
             </div>
 
-            <div className="rc-footer">
-              <div style={{ textAlign: 'center', fontSize: '9px', color: '#444', marginTop: '10px', fontStyle: 'italic' }}>
+            <div className="rc-footer" style={{ marginTop: '10px' }}>
+              <div style={{ textAlign: 'center', fontSize: '8px', color: '#000', fontWeight: 'bold' }}>
                 --- SCAN TO PLAY OUR BEAT ---
               </div>
 
-              <div className="qr-container" style={{ textAlign: 'center', margin: '10px 0' }}>
+              <div className="qr-container" style={{ textAlign: 'center', margin: '8px 0' }}>
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
                   alt="Spotify QR"
                   style={{ 
-                    width: '90px', 
-                    height: '90px', 
+                    width: '85px', 
+                    height: '85px', 
                     display: 'block',
                     margin: '0 auto',
                     border: '1px solid #000',
-                    padding: '4px',
+                    padding: '3px',
                     backgroundColor: '#fff'
                   }} 
                 />
               </div>
               
-              <div style={{fontSize:10, letterSpacing:2, fontWeight:'bold'}}>
+              <div style={{ fontSize: '9px', letterSpacing: '2px', fontWeight: 'bold', textAlign: 'center' }}>
                 INV-CODE-{reservationDate.replace(/-/g,'')}
               </div>
-              <div className="rc-note" style={{marginTop: 5}}>"Please save this receipt as a valid ticket."</div>
+              <div className="rc-note" style={{ marginTop: '4px', textAlign: 'center', fontSize: '9px' }}>"Please save this receipt as a valid ticket."</div>
               
               <button 
                 onClick={handleDownloadImage}
                 disabled={isCapturing}
                 data-html2canvas-ignore
                 style={{
-                  marginTop:15, 
-                  width:'100%', 
-                  padding:12, 
+                  marginTop: '12px', 
+                  width: '100%', 
+                  padding: '10px', 
                   background: isCapturing ? '#999' : '#000', 
-                  color:'#fff', 
-                  border:'none', 
-                  cursor:'pointer', 
-                  fontSize:10, 
-                  textTransform:'uppercase', 
-                  fontWeight:'bold'
+                  color: '#fff', 
+                  border: 'none', 
+                  cursor: 'pointer', 
+                  fontSize: '9px', 
+                  textTransform: 'uppercase', 
+                  fontWeight: 'bold'
                 }}
               >
-                {isCapturing ? "PRINTING IMAGE..." : "CLICK TO SAVE AS IMAGE 📸"}
+                {isCapturing ? "PRINTING..." : "SAVE AS IMAGE 📸"}
               </button>
             </div>
           </div>
