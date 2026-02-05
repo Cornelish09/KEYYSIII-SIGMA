@@ -320,56 +320,58 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            {/* --- BAGIAN RUNDOWN DI NOTA (TENGAH & RAPI) --- */}
-            <div className="rc-body" style={{ marginTop: 20 }}>
-              {/* Judul Kecil Itinerary */}
+            <div className="rc-body" style={{ marginTop: 20, borderTop: '1px solid #000', paddingTop: 10 }}>
+              {/* Header Tabel Mini biar makin rapi */}
               <div style={{ 
-                textAlign: 'center', 
-                fontSize: 9, 
+                display: 'flex', 
+                fontSize: '8px', 
                 fontWeight: 'bold', 
-                letterSpacing: 2, 
-                marginBottom: 15, 
-                borderBottom: '1px dashed #eee', 
-                paddingBottom: 5 
+                color: '#666', 
+                marginBottom: '10px',
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
               }}>
-                OFFICIAL ITINERARY
+                <span style={{ width: '80px' }}>Time</span>
+                <span style={{ flex: 1, textAlign: 'center' }}>Activity</span>
+                <span style={{ width: '120px', textAlign: 'right' }}>Note</span>
               </div>
 
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
-                  textAlign: 'center', 
-                  marginBottom: 15, 
                   display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center' 
+                  alignItems: 'center', 
+                  padding: '8px 0', 
+                  borderBottom: '1px solid #f0f0f0',
+                  fontSize: '10px'
                 }}>
-                  {/* LABEL: Sekarang di tengah dan bold */}
+                  {/* JAM (KIRI) */}
                   <span style={{ 
-                    fontSize: 9, 
+                    width: '80px', 
+                    fontWeight: 'bold', 
+                    fontFamily: "'Space Mono', monospace" 
+                  }}>
+                    {item.time}
+                  </span>
+
+                  {/* LABEL (TENGAH) */}
+                  <span style={{ 
+                    flex: 1, 
+                    textAlign: 'center', 
                     fontWeight: 800, 
-                    textTransform: 'uppercase', 
-                    color: '#666',
-                    letterSpacing: 1
+                    textTransform: 'uppercase',
+                    padding: '0 5px'
                   }}>
                     {item.label}
                   </span>
-                  
-                  {/* TIME: Tampil FULL (gak kepotong lagi) */}
+
+                  {/* KETERANGAN (KANAN) */}
                   <span style={{ 
-                    fontSize: 12, 
-                    fontWeight: 'bold', 
-                    fontFamily: "'Space Mono', monospace", 
-                    margin: '2px 0' 
-                  }}>
-                    {item.time} {/* Lo input 16.30 - 17.30, munculnya bakal full gini */}
-                  </span>
-                  
-                  {/* DESC: Deskripsi di bawahnya */}
-                  <span style={{ 
-                    fontSize: 10, 
-                    fontStyle: 'italic', 
-                    color: '#444',
-                    maxWidth: '80%' 
+                    width: '120px', 
+                    textAlign: 'right', 
+                    fontSize: '9px', 
+                    fontStyle: 'italic',
+                    lineHeight: '1.2',
+                    color: '#333'
                   }}>
                     {item.desc}
                   </span>
