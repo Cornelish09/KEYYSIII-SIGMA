@@ -301,61 +301,60 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
           <div className="receipt-paper" ref={receiptRef}>
             <button className="rc-close-btn" data-html2canvas-ignore onClick={() => setShowReceipt(false)}>✕</button>
             
-            {/* HEADER DENGAN GARIS LURUS TEBAL */}
-            <div className="rc-header" style={{ borderBottom: '2px solid #000', paddingBottom: '12px', marginBottom: '0' }}>
+            <div className="rc-header" style={{ textAlign: 'center', paddingBottom: '10px' }}>
               <div className="rc-title" style={{ fontSize: '20px', fontWeight: '900' }}>DATE NIGHT RECEIPT</div>
               <div className="rc-sub" style={{ fontSize: '9px', letterSpacing: '1px' }}>OFFICIAL RESERVATION PROTOCOL</div>
               
-              <div className="rc-info-row" style={{ border: 'none', marginTop: '8px' }}>
+              <div className="rc-info-row" style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
                 <div className="rc-info-item">
                   <span className="rc-info-label" style={{ fontSize: '7px' }}>ISSUED DATE</span>
-                  <span className="rc-info-val" style={{ fontSize: '10px' }}>{new Date().toLocaleDateString('id-ID')}</span>
+                  <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>{new Date().toLocaleDateString('id-ID')}</span>
                 </div>
-                <div className="rc-info-item right">
+                <div className="rc-info-item right" style={{ textAlign: 'right' }}>
                   <span className="rc-info-label" style={{ fontSize: '7px' }}>RESERVATION FOR</span>
-                  <span className="rc-info-val" style={{ fontSize: '10px' }}>
-                    {formatDateIndo(reservationDate)}
-                  </span>
+                  <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>{formatDateIndo(reservationDate)}</span>
                 </div>
               </div>
             </div>
 
-            {/* BODY RUNDOWN - SUPER RAPET & CLEAN */}
-            <div className="rc-body" style={{ marginTop: '8px' }}>
+            {/* PEMBATAS ATAS - SEKARANG DASHED */}
+            <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
+
+            <div className="rc-body">
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
-                  padding: '2px 0', // Jarak antar baris paling rapet
+                  padding: '3px 0', 
                   fontSize: '11px' 
                 }}>
-                  <span style={{ width: '80px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>
+                  <span style={{ width: '80px', fontWeight: 'bold', fontFamily: "'Space Mono', monospace" }}>
                     {item.time}
                   </span>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: '900', textTransform: 'uppercase', padding: '0 5px' }}>
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: '900', textTransform: 'uppercase' }}>
                     {item.label}
                   </span>
-                  <span style={{ width: '100px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', color: '#000', flexShrink: 0, lineHeight: '1' }}>
+                  <span style={{ width: '100px', textAlign: 'right', fontSize: '9px', fontStyle: 'italic', lineHeight: '1' }}>
                     {item.desc}
                   </span>
                 </div>
               ))}
-
-              {/* GARIS LURUS TEBAL DI BAWAH RUNDOWN */}
-              <div style={{ borderBottom: '2px solid #000', marginTop: '8px' }}></div>
             </div>
 
-            <div className="rc-total" style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' }}>
+            {/* PEMBATAS BAWAH - SEKARANG DASHED */}
+            <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
+
+            <div className="rc-total" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', padding: '5px 0' }}>
               <span>TOTAL PRICE:</span>
               <span>PRICELESS 💖</span>
             </div>
 
-            <div className="rc-footer" style={{ marginTop: '10px' }}>
-              <div style={{ textAlign: 'center', fontSize: '8px', color: '#000', fontWeight: 'bold' }}>
+            <div className="rc-footer" style={{ marginTop: '5px' }}>
+              <div style={{ textAlign: 'center', fontSize: '8px', fontStyle: 'italic' }}>
                 --- SCAN TO PLAY OUR BEAT ---
               </div>
 
-              <div className="qr-container" style={{ textAlign: 'center', margin: '8px 0' }}>
+              <div className="qr-container" style={{ textAlign: 'center', margin: '10px 0' }}>
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "spotify:playlist:3MFForBzzorHXo5wHz30Vw")}`}
                   alt="Spotify QR"
@@ -364,7 +363,7 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                     height: '85px', 
                     display: 'block',
                     margin: '0 auto',
-                    border: '1px solid #000',
+                    border: '1px solid #000', // Border kotak QR tetep solid biar bisa di-scan
                     padding: '3px',
                     backgroundColor: '#fff'
                   }} 
