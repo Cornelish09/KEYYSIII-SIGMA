@@ -305,7 +305,7 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               <div className="rc-title" style={{ fontSize: '20px', fontWeight: '900' }}>DATE NIGHT RECEIPT</div>
               <div className="rc-sub" style={{ fontSize: '9px', letterSpacing: '1px' }}>OFFICIAL RESERVATION PROTOCOL</div>
               
-              <div className="rc-info-row" style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', paddingBottom: '10px' }}>
+              <div className="rc-info-row" style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', border: 'none', paddingTop: 0 }}>
                 <div className="rc-info-item">
                   <span className="rc-info-label" style={{ fontSize: '7px' }}>ISSUED DATE</span>
                   <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>{new Date().toLocaleDateString('id-ID')}</span>
@@ -317,11 +317,10 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               </div>
             </div>
 
-            {/* GARIS PUTUS-PUTUS ATAS - TETEP ADA SEBAGAI PEMBATAS HEADER */}
-            <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
+            {/* SATU-SATUNYA GARIS PUTUS-PUTUS ATAS */}
+            <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
 
-            {/* BODY RUNDOWN - BERSIH TANPA GARIS MELINTANG DI DALAMNYA */}
-            <div className="rc-body" style={{ padding: '5px 0' }}>
+            <div className="rc-body">
               {rundown.map((item, idx) => (
                 <div key={idx} style={{ 
                   display: 'flex', 
@@ -342,10 +341,10 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               ))}
             </div>
 
-            {/* GARIS PUTUS-PUTUS BAWAH - SEBAGAI PEMBATAS TOTAL */}
-            <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
+            {/* SATU-SATUNYA GARIS PUTUS-PUTUS BAWAH */}
+            <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
 
-            <div className="rc-total" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', padding: '5px 0' }}>
+            <div className="rc-total" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', padding: '5px 0', border: 'none', marginTop: 0 }}>
               <span>TOTAL PRICE:</span>
               <span>PRICELESS 💖</span>
             </div>
