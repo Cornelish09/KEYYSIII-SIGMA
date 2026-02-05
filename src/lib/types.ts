@@ -4,31 +4,26 @@ export type Place = {
   id: string;
   name: string;
   description: string;
-  image: string;       // Versi Baru
+  image: string;       
   locationUrl: string;
   tags: string[];
   budget?: string;
   openHours?: string;
   swot?: string;
-  imageUrl?: string;   // Jaga-jaga Versi Lama
+  imageUrl?: string;   
 };
 
 export type Outfit = {
   id: string;
-  // Kita support dua-duanya biar gak error
-  name: string;        // Versi Baru
-  title?: string;      // Versi Lama
-  
-  description: string; // Versi Baru
-  vibeNote?: string;   // Versi Lama
-  
-  image: string;       // Versi Baru
-  
+  name: string;        // Wajib ada untuk Final.tsx
+  title?: string;      
+  description: string; 
+  vibeNote?: string;   
+  image: string;       // Wajib ada untuk visual-col
   style: string;
-  palette?: string[];  // Warna (Bulat-bulat)
-  
-  herColors?: string[]; // Sisa lama
-  himColors?: string[]; // Sisa lama
+  palette?: string[];  
+  herColors?: string[]; 
+  himColors?: string[]; 
 };
 
 export type ContentConfig = {
@@ -59,6 +54,13 @@ export type ContentConfig = {
     subtitle?: string;
     items: Outfit[];
   };
+  // SUDAH BENAR: Ini yang bikin Final.tsx gak merah lagi
+  rundown?: {
+    time: string;
+    label: string;
+    desc: string;
+    type: string;
+  }[];
   admin: {
     passcode: string;
   };
@@ -67,6 +69,6 @@ export type ContentConfig = {
 export type AppState = {
   step: Step;
   unlocked: boolean;
-  chosenPlaceId?: string; // Isinya JSON string: {dinner: 'id', ...}
+  chosenPlaceId?: string; 
   chosenOutfitId?: string;
 };

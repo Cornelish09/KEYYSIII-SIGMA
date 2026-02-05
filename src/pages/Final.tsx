@@ -76,18 +76,23 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
     setIsCapturing(false);
   };
 
-  // --- 5. RUNDOWN ---
-  const rundown = [
-    { time: "16:30 - 17:30", label: "PICK UP", desc: "Yoshy jemput Keysia", type: "static" },
-    { time: "17:30 - 18:00", label: "ON THE WAY", desc: "Yoshy & Keysia OTW Mall Tunjungan Plaza", type: "static" },
-    { time: "18:00 - 18:15", label: "PRAYER", desc: "Sholat Maghrib di Musholla Mall TP", type: "static" },
-    { time: "18:15 - 19:30", label: "DINNER", desc: getPlaceName(plan?.dinner, "Solaria / Zenbu / Marugame Udon"), type: "dynamic" },
-    { time: "19:30 - 19:45", label: "BUY DRINK / SNACK", desc: getPlaceName(plan?.snack, "Sancha / Feel Matcha"), type: "dynamic" },
-    { time: "19:45 - 20:30", label: "BOOKSTORE", desc: "Pergi ke Gramedia", type: "static" },
-    { time: "20:30 - 21:00", label: "DESSERT", desc: getPlaceName(plan?.dessert, "Luuca / Maison Feerie"), type: "dynamic" },
-    { time: "21:10 - 22:00", label: "CITY WALK", desc: "Pergi ke Jalan Tunjungan (Beli apapun yang kamu mau)", type: "static" },
-    { time: "22:00 - 22:30", label: "DROP OFF", desc: "Nganter Keysia pulang", type: "static" }
-  ];
+  // Ambil rundown dari config (Admin), kalau kosong baru pakai default
+  const baseRundown = cfg.rundown && cfg.rundown.length > 0 
+    ? cfg.rundown 
+    : [
+        { time: "16:30 - 17:30", label: "PICK UP", desc: `${cfg.couple.yourName} jemput ${cfg.couple.herName}`, type: "static" },
+        { time: "18:15 - 19:30", label: "DINNER", desc: "", type: "dinner" },
+        { time: "19:30 - 19:45", label: "SNACK", desc: "", type: "snack" },
+        { time: "20:30 - 21:00", label: "DESSERT", desc: "", type: "dessert" },
+        { time: "22:00 - 22:30", label: "DROP OFF", desc: `Nganter ${cfg.couple.herName} pulang`, type: "static" }
+      ];
+
+  const rundown = baseRundown.map((item: any) => {
+    if (item.type === 'dinner') return { ...item, desc: getPlaceName(plan?.dinner, item.desc || "Belum pilih tempat"), type: 'dynamic' };
+    if (item.type === 'snack') return { ...item, desc: getPlaceName(plan?.snack, item.desc || "Belum pilih snack"), type: 'dynamic' };
+    if (item.type === 'dessert') return { ...item, desc: getPlaceName(plan?.dessert, item.desc || "Belum pilih dessert"), type: 'dynamic' };
+    return item;
+  });
 
   if (loading) return <div style={{background:'#020617', height:'100vh', width:'100vw'}}></div>;
 
@@ -219,7 +224,7 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
           )}
           <div className="overlay-info">
             <div className="badge">Attire Code</div>
-            <div className="outfit-name">{outfit ? (outfit.name || outfit.title) : "No Selection"}</div>
+            <div className="outfit-name">{outfit ? (outfit.name || outfit.title || "No Name") : "No Selection"}</div>
             <div className="outfit-style">{outfit?.style || "Style"} Aesthetic</div>
           </div>
         </div>
@@ -238,7 +243,12 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                 type="date" 
                 className="custom-date-input"
                 value={reservationDate}
-                onChange={(e) => setReservationDate(e.target.value)}
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setReservationDate(newDate);
+                  // Simpan ke storage biar permanen
+                  saveState({ ...state, reservationDate: newDate });
+                }}
               />
             </div>
           </div>
@@ -342,7 +352,7 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               {/* GANTI KE QR CODE BIAR 100% BISA DISCAN */}
               <div className="qr-container" style={{ textAlign: 'center', margin: '15px 0' }}>
                 <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent("https://open.spotify.com/playlist/3MFForBzzorHXo5wHz30Vw?si=e1037e71bf274df0&pt=16becf42f0f644cff6e52a3a652546db")}`} 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cfg.music || "https://spotify.com")}`}
                   alt="Spotify QR"
                   style={{ 
                     width: '100px', 

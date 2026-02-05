@@ -1,5 +1,5 @@
-import { db } from "../firebase"; // Panggil koneksi firebase lo
-import { doc, setDoc } from "firebase/firestore"; // Panggil fungsi buat nulis data
+import { db } from "../firebase"; 
+import { doc, setDoc } from "firebase/firestore"; 
 import React, { useState, useEffect } from "react";
 import type { ContentConfig, Place, Outfit } from "../lib/types";
 import { loadConfig, saveConfig, resetConfig, clearLogs } from "../lib/storage";
@@ -35,23 +35,17 @@ export function Admin() {
     logEvent("admin_verify", { ok: good });
   };
 
-  // --- LOGIKA PENYIMPANAN UTAMA ---
-  const updateConfig = async (newCfg: ContentConfig) => {
+  // --- LOGIKA PENYIMPANAN ---
+  // Fokus simpan ke state & local storage dulu supaya gak lag pas ngetik
+  const updateConfig = (newCfg: ContentConfig) => {
     setCfg(newCfg);     
     saveConfig(newCfg); 
-    try {
-      await setDoc(doc(db, "configs", "main-config"), newCfg);
-      console.log("✅ Auto-sync Firebase Berhasil!");
-    } catch (err) {
-      console.error("❌ Auto-sync Gagal:", err);
-    }
   };
 
-  // Ganti fungsi handleSave di Admin.tsx lo dengan ini:
   const handleSave = async () => {
     try {
       setSaveStatus("idle");
-      // Alamat dokumen harus SAMA dengan yang di App.tsx
+      // Alamat dokumen SAMA dengan yang di App.tsx (main-config)
       await setDoc(doc(db, "configs", "main-config"), cfg);
       
       setSaveStatus("saved");
@@ -59,7 +53,7 @@ export function Admin() {
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
       console.error(err);
-      alert("❌ GAGAL PUBLISH: Pastikan ukuran gambar tidak terlalu besar!");
+      alert("❌ GAGAL PUBLISH: Pastikan koneksi aman atau ukuran gambar tidak terlalu besar!");
     }
   };
 
@@ -116,22 +110,17 @@ export function Admin() {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-
-        // RESOLUSI TINGGI: 1200px biar gak burem
         const MAX_SIZE = 1200; 
         if (width > height) {
           if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
         } else {
           if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
         }
-
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d', { alpha: false });
         ctx?.drawImage(img, 0, 0, width, height);
-
-        // KUALITAS TINGGI: 0.8 (80%) biar jernih
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7); // 0.7 biar file size lebih aman buat Firebase
         callback(dataUrl);
       };
       img.src = event.target?.result as string;
@@ -179,7 +168,7 @@ export function Admin() {
       <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", color: "white" }}>
         <div style={{ background: "#1e293b", padding: 30, borderRadius: 12, border: "1px solid #334155", width: 300 }}>
           <h2 style={{ marginTop: 0 }}>🔒 Admin Access</h2>
-          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Enter Passcode" style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #475569", background: "#0f172a", color: "white", marginBottom: 15 }} />
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && verify()} placeholder="Enter Passcode" style={{ width: "100%", padding: 10, borderRadius: 6, border: "1px solid #475569", background: "#0f172a", color: "white", marginBottom: 15 }} />
           <button onClick={verify} style={{ width: "100%", padding: 10, background: "#3b82f6", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}>Login</button>
         </div>
       </div>
@@ -206,8 +195,8 @@ export function Admin() {
         .btn-primary { background: #3b82f6; color: white; }
         .btn-success { background: #10b981; color: white; }
         .btn-danger { background: #ef4444; color: white; }
-        .btn-outline { background: transparent; border: 1px solid #475569; color: #cbd5e1; }
         .save-btn { position: fixed; top: 20px; right: 20px; z-index: 100; background: #10b981; color: white; padding: 12px 24px; border-radius: 50px; font-weight: 700; box-shadow: 0 10px 20px rgba(0,0,0,0.3); border: none; cursor: pointer; transition: 0.3s; }
+        .save-btn:hover { transform: scale(1.05); }
         .tag-row { display: flex; gap: 8px; flex-wrap: wrap; }
         .tag-chip { padding: 6px 12px; border-radius: 20px; border: 1px solid #475569; background: transparent; color: #94a3b8; cursor: pointer; font-size: 12px; font-weight: 600; }
         .tag-chip.active { background: #8b5cf6; color: white; border-color: #8b5cf6; }
@@ -218,12 +207,12 @@ export function Admin() {
         .palette-container { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
         .palette-item { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: transform 0.2s; position: relative; }
         .palette-item:hover { transform: scale(1.1); }
-        .palette-item:hover::after { content: '×'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; color: rgba(0,0,0,0.5); font-weight: bold; }
+        .palette-item:hover::after { content: '×'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; color: rgba(255,255,255,0.8); font-weight: bold; }
         .color-picker-input { width: 32px; height: 32px; padding: 0; border: none; background: transparent; cursor: pointer; }
       `}</style>
 
-      <button className={`save-btn ${saveStatus === 'saved' ? 'saved' : ''}`} onClick={handleSave}>
-        {saveStatus === 'saved' ? "✅ All Saved!" : "💾 SAVE CHANGES"}
+      <button className="save-btn" onClick={handleSave}>
+        {saveStatus === 'saved' ? "✅ ALL PUBLISHED!" : "💾 PUBLISH CHANGES"}
       </button>
 
       <div className="sidebar">
@@ -245,6 +234,40 @@ export function Admin() {
             <div className="card">
               <label className="label">Isi Surat (Letter)</label>
               <textarea className="textarea" style={{ height: 200 }} value={cfg.letter?.text || ""} onChange={e => updateConfig({...cfg, letter: { ...cfg.letter, text: e.target.value }})} />
+            </div>
+
+            <div className="card">
+              <h3 style={{fontSize:16, marginBottom:20}}>Edit Rundown Acara</h3>
+              {cfg.rundown?.map((rd, idx) => (
+                <div key={idx} style={{display:'flex', gap:10, marginBottom:10, background:'#0f172a', padding:10, borderRadius:8}}>
+                  <input className="input" style={{flex:1}} value={rd.time} onChange={(e) => {
+                    const newRd = [...cfg.rundown];
+                    newRd[idx].time = e.target.value;
+                    updateConfig({...cfg, rundown: newRd});
+                  }} placeholder="Jam" />
+                  <input className="input" style={{flex:1}} value={rd.label} onChange={(e) => {
+                    const newRd = [...cfg.rundown];
+                    newRd[idx].label = e.target.value;
+                    updateConfig({...cfg, rundown: newRd});
+                  }} placeholder="Label" />
+                  <input className="input" style={{flex:2}} value={rd.desc} onChange={(e) => {
+                    const newRd = [...cfg.rundown];
+                    newRd[idx].desc = e.target.value;
+                    updateConfig({...cfg, rundown: newRd});
+                  }} placeholder="Deskripsi" />
+                  <select className="input" style={{flex:1}} value={rd.type} onChange={(e) => {
+                    const newRd = [...cfg.rundown];
+                    newRd[idx].type = e.target.value as any;
+                    updateConfig({...cfg, rundown: newRd});
+                  }}>
+                    <option value="static">Static</option>
+                    <option value="dinner">Dinner (User)</option>
+                    <option value="snack">Snack (User)</option>
+                    <option value="dessert">Dessert (User)</option>
+                  </select>
+                </div>
+              ))}
+              <p style={{fontSize:11, color:'#64748b'}}>* Rundown otomatis tersimpan di browser, klik <b>PUBLISH</b> untuk kirim ke HP pasangan.</p>
             </div>
           </div>
         )}
@@ -316,10 +339,10 @@ export function Admin() {
                 <div style={{marginBottom: 20, padding: 15, background: '#020617', borderRadius: 8}}>
                    <label className="label">🎨 Palette</label>
                    <div className="palette-container">
-                      {(o.palette || []).map((color, cIdx) => (
-                        <div key={cIdx} className="palette-item" style={{ background: color }} onClick={() => removeColorFromPalette(idx, cIdx)} />
-                      ))}
-                      {(o.palette || []).length < 5 && <input type="color" className="color-picker-input" onChange={(e) => addColorToPalette(idx, e.target.value)} />}
+                     {(o.palette || []).map((color, cIdx) => (
+                       <div key={cIdx} className="palette-item" style={{ background: color }} onClick={() => removeColorFromPalette(idx, cIdx)} />
+                     ))}
+                     {(o.palette || []).length < 5 && <input type="color" className="color-picker-input" onChange={(e) => addColorToPalette(idx, e.target.value)} />}
                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
@@ -348,11 +371,10 @@ export function Admin() {
                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cfg));
                    const downloadAnchorNode = document.createElement('a');
                    downloadAnchorNode.setAttribute("href", dataStr);
-                   downloadAnchorNode.setAttribute("download", "backup.json");
+                   downloadAnchorNode.setAttribute("download", "backup-hangout.json");
                    downloadAnchorNode.click();
               }}>Download Backup</button>
-              {/* ✅ BARIS INI SUDAH FIX (PENGGUNAAN TANDA PETIK BIASA) */}
-              <button className="btn btn-danger" onClick={() => { if(confirm("Reset data ke awal?")) { resetConfig(); setCfg(loadConfig()); } }}>Factory Reset</button>
+              <button className="btn btn-danger" onClick={() => { if(confirm("Reset data ke awal? Semua perubahan lo bakal hilang.")) { resetConfig(); window.location.reload(); } }}>Factory Reset</button>
             </div>
           </div>
         )}
