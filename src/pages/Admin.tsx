@@ -83,7 +83,7 @@ export function Admin() {
       
       // Import onSnapshot biar real-time
       const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
-      const q = query(collection(db, "photos"), orderBy("createdAt", "desc"));
+      const q = query(collection(db, "secret_photos"), orderBy("createdAt", "desc"));
 
       unsubscribe = onSnapshot(q, (snapshot) => {
         const photos = snapshot.docs.map(doc => ({
