@@ -1,428 +1,1233 @@
-import React, { useRef, useState, useEffect } from "react";
-import Webcam from "react-webcam";
-import { useNavigate } from "react-router-dom";
-import { db, storage } from "../firebase"; // Gunakan Storage firebase
-import { collection, addDoc, onSnapshot, query, orderBy } from "firebase/firestore";
-import { ref, uploadString, getDownloadURL } from "firebase/storage";
+import React, { useRef, useState, useEffect } from 'react';
+import Webcam from 'react-webcam';
+import html2canvas from 'html2canvas';
+import Draggable from 'react-draggable';
+import Confetti from 'react-confetti';
+import { QRCodeSVG } from 'qrcode.react';
+import { db, storage } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// --- TYPES & CONFIG ---
-type LayoutType = 'STRIP' | 'GRID';
-type Sticker = { id: string; url: string; };
-type PlacedSticker = { id: string; url: string; x: number; y: number; scale: number; };
+// ========================================
+// 🎯 TYPES
+// ========================================
+type PhotoLayout = '2-vertical' | '3-vertical' | '4-vertical' | '2x2-grid' | '3x3-grid' | '4-custom';
+type CanvasSize = '4:5' | '9:16' | '1:1' | '707x2000' | 'custom';
+type FilterType = 'normal' | 'bw' | 'vintage' | 'vibrant' | 'soft' | 'warm';
 
-const LAYOUTS = {
-  STRIP: { w: 600, h: 1800, count: 3, photos: [
-    { x: 50, y: 50, w: 500, h: 500 },
-    { x: 50, y: 600, w: 500, h: 500 },
-    { x: 50, y: 1150, w: 500, h: 500 }
-  ]},
-  GRID: { w: 1200, h: 1800, count: 4, photos: [
-    { x: 50, y: 50, w: 525, h: 700 },
-    { x: 625, y: 50, w: 525, h: 700 },
-    { x: 50, y: 800, w: 525, h: 700 },
-    { x: 625, y: 800, w: 525, h: 700 }
-  ]}
+type Frame = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  color?: string;
+  type: 'color' | 'image';
 };
 
-const COLORS = ['#ffffff', '#000000', '#ffc0cb', '#87ceeb', '#fffdd0', '#e6e6fa', '#ffdab9'];
+type Sticker = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  flipX: boolean;
+  flipY: boolean;
+};
 
+type PhotoCapture = {
+  id: string;
+  dataUrl: string;
+  filter: FilterType;
+  timestamp: number;
+};
+
+type TextOverlay = {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  fontFamily: string;
+  rotation: number;
+};
+
+// ========================================
+// 🎨 CONSTANTS
+// ========================================
+const CANVAS_SIZES = {
+  '4:5': { width: 1080, height: 1350 },
+  '9:16': { width: 1080, height: 1920 },
+  '1:1': { width: 1080, height: 1080 },
+  '707x2000': { width: 707, height: 2000 },
+};
+
+const LAYOUTS = {
+  '2-vertical': { photoCount: 2, gridCols: 1, gridRows: 2 },
+  '3-vertical': { photoCount: 3, gridCols: 1, gridRows: 3 },
+  '4-vertical': { photoCount: 4, gridCols: 1, gridRows: 4 },
+  '2x2-grid': { photoCount: 4, gridCols: 2, gridRows: 2 },
+  '3x3-grid': { photoCount: 9, gridCols: 3, gridRows: 3 },
+  '4-custom': { photoCount: 4, gridCols: 2, gridRows: 2 },
+};
+
+const FILTERS: FilterType[] = ['normal', 'bw', 'vintage', 'vibrant', 'soft', 'warm'];
+
+const COUNTDOWN_SOUNDS = {
+  3: new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'),
+  2: new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'),
+  1: new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'),
+  0: new Audio('https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3'), // Camera shutter
+};
+
+// Mock data - nanti di-fetch dari Firebase
+const MOCK_FRAMES: Frame[] = [
+  { id: 'f1', name: 'Pink Pastel', color: '#FFB6C1', type: 'color' },
+  { id: 'f2', name: 'Baby Blue', color: '#89CFF0', type: 'color' },
+  { id: 'f3', name: 'Mint Green', color: '#98FF98', type: 'color' },
+  { id: 'f4', name: 'Lavender', color: '#E6E6FA', type: 'color' },
+];
+
+const MOCK_STICKERS: Omit<Sticker, 'x' | 'y' | 'rotation' | 'flipX' | 'flipY' | 'width' | 'height'>[] = [
+  { id: 's1', name: 'Heart', imageUrl: 'https://em-content.zobj.net/thumbs/240/apple/354/sparkling-heart_1f496.png' },
+  { id: 's2', name: 'Star', imageUrl: 'https://em-content.zobj.net/thumbs/240/apple/354/star_2b50.png' },
+  { id: 's3', name: 'Rainbow', imageUrl: 'https://em-content.zobj.net/thumbs/240/apple/354/rainbow_1f308.png' },
+  { id: 's4', name: 'Butterfly', imageUrl: 'https://em-content.zobj.net/thumbs/240/apple/354/butterfly_1f98b.png' },
+];
+
+// ========================================
+// 🚀 MAIN COMPONENT
+// ========================================
 export function PhotoboxPage() {
-  const navigate = useNavigate();
   const webcamRef = useRef<Webcam>(null);
-  
-  // STATE: SETUP
-  const [step, setStep] = useState<'SETUP' | 'CAPTURE' | 'EDIT' | 'RESULT'>('SETUP');
-  const [layout, setLayout] = useState<LayoutType>('STRIP');
-  const [timerDelay, setTimerDelay] = useState(3); // 0, 3, 5, 10
-  
-  // STATE: CAPTURE
-  const [captures, setCaptures] = useState<string[]>([]);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // ========== STEP CONTROL ==========
+  const [step, setStep] = useState<'setup' | 'capture' | 'preview' | 'edit' | 'final'>('setup');
+
+  // ========== SETUP CONFIG ==========
+  const [photoCount, setPhotoCount] = useState(4);
+  const [layout, setLayout] = useState<PhotoLayout>('4-vertical');
+  const [canvasSize, setCanvasSize] = useState<CanvasSize>('4:5');
+  const [customSize, setCustomSize] = useState({ width: 1080, height: 1350 });
+  const [timerDuration, setTimerDuration] = useState(3);
+  const [enableMusic, setEnableMusic] = useState(false);
+
+  // ========== CAPTURE STATE ==========
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [flash, setFlash] = useState(false);
+  const [capturedPhotos, setCapturedPhotos] = useState<PhotoCapture[]>([]);
+  const [currentFilter, setCurrentFilter] = useState<FilterType>('normal');
 
-  // STATE: EDIT
-  const [frameColor, setFrameColor] = useState('#ffffff');
-  const [availableStickers, setAvailableStickers] = useState<Sticker[]>([]);
-  const [placedStickers, setPlacedStickers] = useState<PlacedSticker[]>([]);
-  const [selectedStickerIdx, setSelectedStickerIdx] = useState<number | null>(null);
-  
-  // STATE: RESULT
-  const [finalImage, setFinalImage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // ========== EDIT STATE ==========
+  const [selectedFrame, setSelectedFrame] = useState<Frame>(MOCK_FRAMES[0]);
+  const [stickers, setStickers] = useState<Sticker[]>([]);
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
 
-  // LOAD STICKERS FROM ADMIN
-  useEffect(() => {
-    const q = query(collection(db, "stickers"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => setAvailableStickers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Sticker))));
-  }, []);
+  // ========== UI STATE ==========
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // --- LOGIC: CAPTURE ---
-  const startSession = () => {
-    setCaptures([]);
-    setStep('CAPTURE');
-    triggerCaptureLoop(0);
+  // ========== HISTORY (UNDO/REDO) ==========
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // ========================================
+  // 📸 PHOTO CAPTURE LOGIC
+  // ========================================
+  const startCapture = () => {
+    setStep('capture');
+    setCurrentPhotoIndex(0);
+    setCapturedPhotos([]);
+    captureNextPhoto();
   };
 
-  const triggerCaptureLoop = (index: number) => {
-    const max = LAYOUTS[layout].count;
-    if (index >= max) {
-      setTimeout(() => setStep('EDIT'), 1000);
-      return;
-    }
-
-    let count = timerDelay;
-    if (count === 0) {
-      takePhoto(index);
+  const captureNextPhoto = () => {
+    if (timerDuration > 0) {
+      setCountdown(timerDuration);
     } else {
-      setCountdown(count);
-      const timer = setInterval(() => {
-        count--;
-        setCountdown(count);
-        if (count === 0) {
-          clearInterval(timer);
-          setCountdown(null);
-          takePhoto(index);
-        }
-      }, 1000);
+      takePhoto();
     }
   };
 
-  const takePhoto = async (index: number) => {
-    if (!webcamRef.current) return;
-    const imageSrc = webcamRef.current.getScreenshot();
+  useEffect(() => {
+    if (countdown === null) return;
+    
+    if (countdown > 0) {
+      // Play countdown sound
+      if (COUNTDOWN_SOUNDS[countdown as 3 | 2 | 1]) {
+        COUNTDOWN_SOUNDS[countdown as 3 | 2 | 1].play();
+      }
+      
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      // Take photo when countdown reaches 0
+      COUNTDOWN_SOUNDS[0].play();
+      takePhoto();
+      setCountdown(null);
+    }
+  }, [countdown]);
+
+  const takePhoto = async () => {
+    const imageSrc = webcamRef.current?.getScreenshot();
     if (!imageSrc) return;
 
-    setFlash(true);
-    setTimeout(() => setFlash(false), 150);
-
-    // FLIP LOGIC: Webcam preview is mirrored, but we want result UN-MIRRORED (True Self)
-    // We create a canvas to flip it back horizontally
-    const img = new Image();
-    img.src = imageSrc;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Balik horizontal (Un-mirror) karena webcam defaultnya mirror
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(img, 0, 0);
-        
-        const truePhoto = canvas.toDataURL('image/jpeg', 0.9);
-        setCaptures(prev => [...prev, truePhoto]);
-        
-        // 🔥 AUTO UPLOAD RAW CAPTURE TO ADMIN
-        uploadToAdmin(truePhoto, 'raw');
-
-        // Next photo
-        setTimeout(() => triggerCaptureLoop(index + 1), 1000);
-      }
+    const newPhoto: PhotoCapture = {
+      id: `photo-${Date.now()}`,
+      dataUrl: imageSrc,
+      filter: currentFilter,
+      timestamp: Date.now(),
     };
-  };
 
-  // --- LOGIC: STICKER EDITOR ---
-  const addSticker = (sticker: Sticker) => {
-    setPlacedStickers([...placedStickers, {
-      id: Date.now().toString(),
-      url: sticker.url,
-      x: LAYOUTS[layout].w / 2 - 100, // Center
-      y: LAYOUTS[layout].h / 2 - 100,
-      scale: 1
-    }]);
-  };
+    setCapturedPhotos(prev => [...prev, newPhoto]);
 
-  const updateSticker = (idx: number, updates: Partial<PlacedSticker>) => {
-    const newStickers = [...placedStickers];
-    newStickers[idx] = { ...newStickers[idx], ...updates };
-    setPlacedStickers(newStickers);
-  };
+    // Upload ke Firebase Storage IMMEDIATELY
+    await uploadPhotoToFirebase(imageSrc);
 
-  // --- LOGIC: RENDER FINAL IMAGE (CANVAS) ---
-  const generateFinalImage = async () => {
-    setSaving(true);
-    const canvas = document.createElement('canvas');
-    const cfg = LAYOUTS[layout];
-    canvas.width = cfg.w;
-    canvas.height = cfg.h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // 1. Draw Background
-    ctx.fillStyle = frameColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 2. Draw Photos
-    const photoProms = captures.map((src, i) => {
-      return new Promise<void>((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const slot = cfg.photos[i];
-          // Crop Center Logic (Object-fit: cover)
-          const ratio = img.width / img.height;
-          const slotRatio = slot.w / slot.h;
-          let sw, sh, sx, sy;
-          
-          if (ratio > slotRatio) {
-            sh = img.height; sw = img.height * slotRatio;
-            sy = 0; sx = (img.width - sw) / 2;
-          } else {
-            sw = img.width; sh = img.width / slotRatio;
-            sx = 0; sy = (img.height - sh) / 2;
-          }
-
-          ctx.drawImage(img, sx, sy, sw, sh, slot.x, slot.y, slot.w, slot.h);
-          resolve();
-        };
-        img.src = src;
-      });
-    });
-
-    await Promise.all(photoProms);
-
-    // 3. Draw Stickers
-    const stickerProms = placedStickers.map((s) => {
-      return new Promise<void>((resolve) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          const size = 200 * s.scale; // Base size 200px
-          ctx.drawImage(img, s.x, s.y, size, size);
-          resolve();
-        };
-        img.src = s.url;
-      });
-    });
-
-    await Promise.all(stickerProms);
-
-    // 4. Branding (Optional)
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.font = 'bold 20px Arial';
-    ctx.fillText("📸 PHOTOBOOTH", 20, canvas.height - 20);
-
-    const result = canvas.toDataURL('image/jpeg', 0.95);
-    setFinalImage(result);
-    
-    // 🔥 AUTO UPLOAD FINAL RESULT TO ADMIN
-    await uploadToAdmin(result, 'final');
-    
-    setStep('RESULT');
-    setSaving(false);
-  };
-
-  const uploadToAdmin = async (base64: string, type: 'raw' | 'final') => {
-    try {
-      // 1. Upload Base64 to Firebase Storage
-      const fileName = `photobooth/${type}_${Date.now()}.jpg`;
-      const storageRef = ref(storage, fileName);
-      await uploadString(storageRef, base64, 'data_url');
-      const url = await getDownloadURL(storageRef);
-
-      // 2. Add Record to Firestore
-      await addDoc(collection(db, "photobooth_gallery"), {
-        url,
-        type,
-        createdAt: new Date().toISOString()
-      });
-      console.log(`✅ Uploaded ${type} to admin`);
-    } catch (e) {
-      console.error("Upload failed", e);
+    // Check if we need more photos
+    if (currentPhotoIndex + 1 < photoCount) {
+      setCurrentPhotoIndex(prev => prev + 1);
+      setTimeout(() => captureNextPhoto(), 1000); // 1s delay between shots
+    } else {
+      // All photos captured!
+      setStep('preview');
     }
   };
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#1a1a1a', color: 'white', fontFamily: 'sans-serif', overflow: 'hidden' }}>
+  const retakePhoto = (index: number) => {
+    setCapturedPhotos(prev => prev.filter((_, i) => i !== index));
+    setCurrentPhotoIndex(index);
+    setStep('capture');
+    captureNextPhoto();
+  };
+
+  // ========================================
+  // 🔥 FIREBASE UPLOAD
+  // ========================================
+  const uploadPhotoToFirebase = async (dataUrl: string) => {
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const timestamp = Date.now();
+      const storageRef = ref(storage, `photobox/raw/${timestamp}.jpg`);
       
-      {/* HEADER NAV */}
-      <div style={{ padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#000' }}>
-        <h1 style={{ margin: 0, fontSize: 20 }}>📸 PHOTOBOOTH</h1>
-        <button onClick={() => navigate('/final')} style={{ background: 'transparent', border: '1px solid white', color: 'white', padding: '5px 15px', borderRadius: 20 }}>Exit</button>
-      </div>
+      await uploadBytes(storageRef, blob);
+      const downloadUrl = await getDownloadURL(storageRef);
 
-      <div style={{ maxWidth: 800, margin: '0 auto', padding: 20, textAlign: 'center' }}>
+      // Save metadata to Firestore
+      await addDoc(collection(db, 'photobox_raw'), {
+        url: downloadUrl,
+        createdAt: serverTimestamp(),
+        type: 'raw_capture',
+      });
+
+      console.log('✅ Photo uploaded to Firebase:', downloadUrl);
+    } catch (error) {
+      console.error('❌ Upload error:', error);
+    }
+  };
+
+  const uploadFinalDesign = async (dataUrl: string) => {
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const timestamp = Date.now();
+      const storageRef = ref(storage, `photobox/final/${timestamp}.jpg`);
+      
+      await uploadBytes(storageRef, blob);
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Save to Firestore
+      await addDoc(collection(db, 'photobox_final'), {
+        url: downloadUrl,
+        createdAt: serverTimestamp(),
+        layout,
+        photoCount,
+        frameId: selectedFrame.id,
+        stickerCount: stickers.length,
+        textCount: textOverlays.length,
+      });
+
+      setFinalImageUrl(downloadUrl);
+      console.log('✅ Final design uploaded:', downloadUrl);
+    } catch (error) {
+      console.error('❌ Final upload error:', error);
+    }
+  };
+
+  // ========================================
+  // 🎨 EDITING FUNCTIONS
+  // ========================================
+  const addSticker = (sticker: typeof MOCK_STICKERS[0]) => {
+    const newSticker: Sticker = {
+      ...sticker,
+      x: 200,
+      y: 200,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+    };
+    setStickers(prev => [...prev, newSticker]);
+    saveHistory();
+  };
+
+  const updateSticker = (id: string, updates: Partial<Sticker>) => {
+    setStickers(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+    saveHistory();
+  };
+
+  const deleteSticker = (id: string) => {
+    setStickers(prev => prev.filter(s => s.id !== id));
+    setSelectedStickerId(null);
+    saveHistory();
+  };
+
+  const addText = () => {
+    const newText: TextOverlay = {
+      id: `text-${Date.now()}`,
+      text: 'Your Text Here',
+      x: 200,
+      y: 200,
+      fontSize: 32,
+      color: '#FFFFFF',
+      fontFamily: 'Arial',
+      rotation: 0,
+    };
+    setTextOverlays(prev => [...prev, newText]);
+    saveHistory();
+  };
+
+  const updateText = (id: string, updates: Partial<TextOverlay>) => {
+    setTextOverlays(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    saveHistory();
+  };
+
+  const deleteText = (id: string) => {
+    setTextOverlays(prev => prev.filter(t => t.id !== id));
+    setSelectedTextId(null);
+    saveHistory();
+  };
+
+  // ========================================
+  // 🔄 UNDO/REDO
+  // ========================================
+  const saveHistory = () => {
+    const state = { stickers: [...stickers], textOverlays: [...textOverlays] };
+    setHistory(prev => [...prev.slice(0, historyIndex + 1), state]);
+    setHistoryIndex(prev => prev + 1);
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prevState = history[historyIndex - 1];
+      setStickers(prevState.stickers);
+      setTextOverlays(prevState.textOverlays);
+      setHistoryIndex(prev => prev - 1);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const nextState = history[historyIndex + 1];
+      setStickers(nextState.stickers);
+      setTextOverlays(nextState.textOverlays);
+      setHistoryIndex(prev => prev + 1);
+    }
+  };
+
+  // ========================================
+  // 💾 EXPORT TO IMAGE
+  // ========================================
+  const exportImage = async () => {
+    if (!canvasRef.current) return;
+
+    setIsProcessing(true);
+    setUploadProgress(20);
+
+    try {
+      const canvas = await html2canvas(canvasRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+      });
+
+      setUploadProgress(60);
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      
+      setUploadProgress(80);
+
+      // Upload to Firebase
+      await uploadFinalDesign(dataUrl);
+
+      setUploadProgress(100);
+      setShowConfetti(true);
+      setStep('final');
+
+      setTimeout(() => setShowConfetti(false), 5000);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Gagal export image. Coba lagi!');
+    } finally {
+      setIsProcessing(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // ========================================
+  // 🎨 FILTER CSS
+  // ========================================
+  const getFilterStyle = (filter: FilterType): React.CSSProperties => {
+    const filters = {
+      normal: 'none',
+      bw: 'grayscale(100%)',
+      vintage: 'sepia(50%) contrast(1.2) brightness(0.9)',
+      vibrant: 'saturate(1.5) contrast(1.1)',
+      soft: 'brightness(1.1) contrast(0.9)',
+      warm: 'sepia(30%) saturate(1.2)',
+    };
+    return { filter: filters[filter] };
+  };
+
+  // ========================================
+  // 📐 CANVAS SIZE CALCULATOR
+  // ========================================
+  const getCanvasDimensions = () => {
+    if (canvasSize === 'custom') return customSize;
+    return CANVAS_SIZES[canvasSize];
+  };
+
+  const dimensions = getCanvasDimensions();
+
+  // ========================================
+  // 🎬 RENDER
+  // ========================================
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '40px 20px' }}>
+      {showConfetti && <Confetti recycle={false} numberOfPieces={500} />}
+
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         
-        {/* STEP 1: SETUP */}
-        {step === 'SETUP' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 30, marginTop: 40 }}>
-            <div>
-              <h3>1. Pilih Layout</h3>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button onClick={() => setLayout('STRIP')} style={selStyle(layout === 'STRIP')}>🎞️ Strip (3 Foto)</button>
-                <button onClick={() => setLayout('GRID')} style={selStyle(layout === 'GRID')}>田 Grid (4 Foto)</button>
-              </div>
-            </div>
+        {/* ========== HEADER ========== */}
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <h1 style={{ fontSize: '48px', color: 'white', margin: '0 0 10px 0', fontWeight: '800', textShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+            📸 Photo Booth Pro Max
+          </h1>
+          <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>
+            Snap, Edit, Share - Ultra GACOR! ✨
+          </p>
+        </div>
 
-            <div>
-              <h3>2. Timer Pose</h3>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                {[0, 3, 5, 10].map(t => (
-                  <button key={t} onClick={() => setTimerDelay(t)} style={selStyle(timerDelay === t)}>{t}s</button>
+        {/* ========== STEP 1: SETUP ========== */}
+        {step === 'setup' && (
+          <div style={{ background: 'white', borderRadius: '24px', padding: '40px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h2 style={{ fontSize: '28px', marginTop: 0, marginBottom: '30px', color: '#1e293b' }}>⚙️ Konfigurasi Booth</h2>
+
+            {/* Photo Count */}
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '12px', color: '#475569', fontSize: '16px' }}>
+                📸 Jumlah Foto
+              </label>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {[2, 3, 4, 6, 9].map(count => (
+                  <button
+                    key={count}
+                    onClick={() => setPhotoCount(count)}
+                    style={{
+                      padding: '12px 24px',
+                      border: photoCount === count ? '3px solid #667eea' : '2px solid #e2e8f0',
+                      background: photoCount === count ? '#667eea' : 'white',
+                      color: photoCount === count ? 'white' : '#1e293b',
+                      borderRadius: '12px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {count} Foto
+                  </button>
                 ))}
               </div>
             </div>
 
-            <button onClick={startSession} style={{ padding: 20, fontSize: 20, background: '#3b82f6', color: 'white', border: 'none', borderRadius: 10, fontWeight: 'bold', marginTop: 20, cursor: 'pointer' }}>
-              MULAI FOTO! 📸
+            {/* Layout */}
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '12px', color: '#475569', fontSize: '16px' }}>
+                📐 Layout Foto
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                {Object.keys(LAYOUTS).map(layoutKey => (
+                  <button
+                    key={layoutKey}
+                    onClick={() => {
+                      setLayout(layoutKey as PhotoLayout);
+                      setPhotoCount(LAYOUTS[layoutKey as PhotoLayout].photoCount);
+                    }}
+                    style={{
+                      padding: '16px',
+                      border: layout === layoutKey ? '3px solid #667eea' : '2px solid #e2e8f0',
+                      background: layout === layoutKey ? '#f1f5f9' : 'white',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
+                      {layoutKey.replace('-', ' ').toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                      {LAYOUTS[layoutKey as PhotoLayout].photoCount} foto
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Canvas Size */}
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '12px', color: '#475569', fontSize: '16px' }}>
+                📏 Ukuran Canvas
+              </label>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {Object.keys(CANVAS_SIZES).map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setCanvasSize(size as CanvasSize)}
+                    style={{
+                      padding: '12px 20px',
+                      border: canvasSize === size ? '3px solid #667eea' : '2px solid #e2e8f0',
+                      background: canvasSize === size ? '#667eea' : 'white',
+                      color: canvasSize === size ? 'white' : '#1e293b',
+                      borderRadius: '12px',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {size}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCanvasSize('custom')}
+                  style={{
+                    padding: '12px 20px',
+                    border: canvasSize === 'custom' ? '3px solid #667eea' : '2px solid #e2e8f0',
+                    background: canvasSize === 'custom' ? '#667eea' : 'white',
+                    color: canvasSize === 'custom' ? 'white' : '#1e293b',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Custom
+                </button>
+              </div>
+
+              {canvasSize === 'custom' && (
+                <div style={{ marginTop: '16px', display: 'flex', gap: '12px' }}>
+                  <input
+                    type="number"
+                    placeholder="Width"
+                    value={customSize.width}
+                    onChange={e => setCustomSize(prev => ({ ...prev, width: parseInt(e.target.value) || 1080 }))}
+                    style={{ flex: 1, padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', fontSize: '14px' }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Height"
+                    value={customSize.height}
+                    onChange={e => setCustomSize(prev => ({ ...prev, height: parseInt(e.target.value) || 1350 }))}
+                    style={{ flex: 1, padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', fontSize: '14px' }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Timer */}
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '12px', color: '#475569', fontSize: '16px' }}>
+                ⏱️ Timer Countdown
+              </label>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                {[0, 3, 5, 10].map(seconds => (
+                  <button
+                    key={seconds}
+                    onClick={() => setTimerDuration(seconds)}
+                    style={{
+                      padding: '12px 24px',
+                      border: timerDuration === seconds ? '3px solid #667eea' : '2px solid #e2e8f0',
+                      background: timerDuration === seconds ? '#667eea' : 'white',
+                      color: timerDuration === seconds ? 'white' : '#1e293b',
+                      borderRadius: '12px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {seconds === 0 ? 'Instant' : `${seconds}s`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Music Toggle */}
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={enableMusic}
+                  onChange={e => setEnableMusic(e.target.checked)}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '16px', fontWeight: '600', color: '#475569' }}>
+                  🎵 Background Music
+                </span>
+              </label>
+            </div>
+
+            {/* Start Button */}
+            <button
+              onClick={startCapture}
+              style={{
+                width: '100%',
+                padding: '18px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                fontSize: '20px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 10px 30px rgba(102, 126, 234, 0.4)',
+                transition: 'transform 0.2s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.02)')}
+              onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              🚀 Mulai Photo Booth!
             </button>
           </div>
         )}
 
-        {/* STEP 2: CAPTURE */}
-        {step === 'CAPTURE' && (
-          <div style={{ position: 'relative', borderRadius: 20, overflow: 'hidden', border: '4px solid #333' }}>
-            <Webcam 
-              ref={webcamRef} 
-              mirrored={true} // PREVIEW MIRRORED (Buat ngaca)
-              screenshotFormat="image/jpeg"
-              style={{ width: '100%', display: 'block' }} 
-            />
-            
-            {/* Countdown Overlay */}
+        {/* ========== STEP 2: CAPTURE ========== */}
+        {step === 'capture' && (
+          <div style={{ background: 'white', borderRadius: '24px', padding: '40px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '28px', marginTop: 0, marginBottom: '20px', color: '#1e293b' }}>
+              📸 Foto {currentPhotoIndex + 1} dari {photoCount}
+            </h2>
+
+            {/* Countdown Display */}
             {countdown !== null && (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'rgba(0,0,0,0.3)' }}>
-                <span style={{ fontSize: 150, fontWeight: 900, color: 'white', textShadow: '0 4px 20px black' }}>{countdown}</span>
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                fontSize: '200px',
+                fontWeight: '900',
+                color: '#667eea',
+                textShadow: '0 10px 40px rgba(0,0,0,0.3)',
+                zIndex: 1000,
+                animation: 'pulse 1s infinite',
+              }}>
+                {countdown}
               </div>
             )}
 
-            {/* Flash Effect */}
-            <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: flash ? 1 : 0, transition: 'opacity 0.2s', pointerEvents: 'none' }} />
-            
+            {/* Webcam */}
+            <div style={{ position: 'relative', margin: '0 auto', maxWidth: '640px', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                screenshotFormat="image/jpeg"
+                videoConstraints={{
+                  width: 1280,
+                  height: 720,
+                  facingMode: 'user',
+                }}
+                mirrored={false} // NON-MIRROR!
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  ...getFilterStyle(currentFilter),
+                }}
+              />
+            </div>
+
+            {/* Filter Selector */}
+            <div style={{ marginTop: '24px', display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {FILTERS.map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setCurrentFilter(filter)}
+                  style={{
+                    padding: '8px 16px',
+                    border: currentFilter === filter ? '2px solid #667eea' : '1px solid #e2e8f0',
+                    background: currentFilter === filter ? '#667eea' : 'white',
+                    color: currentFilter === filter ? 'white' : '#1e293b',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+
             {/* Progress */}
-            <div style={{ position: 'absolute', bottom: 20, left: 0, right: 0, textAlign: 'center' }}>
-               <span style={{ background: 'rgba(0,0,0,0.6)', padding: '5px 15px', borderRadius: 20, fontSize: 14 }}>
-                 Foto {captures.length + 1} / {LAYOUTS[layout].count}
-               </span>
+            <div style={{ marginTop: '24px', background: '#f1f5f9', borderRadius: '12px', padding: '16px' }}>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                {Array.from({ length: photoCount }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '8px',
+                      background: i < capturedPhotos.length ? '#10b981' : i === currentPhotoIndex ? '#667eea' : '#e2e8f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontWeight: '700',
+                      fontSize: '14px',
+                    }}
+                  >
+                    {i < capturedPhotos.length ? '✓' : i + 1}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* STEP 3: EDITOR */}
-        {step === 'EDIT' && (
-          <div style={{ display: 'flex', gap: 20, flexDirection: 'column' }}>
-            {/* CANVAS PREVIEW (DOM BASED FOR INTERACTION) */}
-            <div style={{ 
-                width: 350, height: layout === 'STRIP' ? 1050 : 525, // Aspect ratio scaled down
-                margin: '0 auto',
-                background: frameColor,
-                position: 'relative',
-                overflow: 'hidden',
-                boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-                transition: 'background 0.3s'
-              }}
-              onPointerUp={() => setSelectedStickerIdx(null)} // Deselect
-            >
-              {/* PHOTOS */}
-              {captures.map((src, i) => {
-                 const cfg = LAYOUTS[layout].photos[i];
-                 // Calculate scale factor for DOM preview (350px width base)
-                 const scale = 350 / LAYOUTS[layout].w;
-                 return (
-                   <img key={i} src={src} style={{
-                     position: 'absolute',
-                     left: cfg.x * scale, top: cfg.y * scale,
-                     width: cfg.w * scale, height: cfg.h * scale,
-                     objectFit: 'cover'
-                   }} />
-                 )
-              })}
+        {/* ========== STEP 3: PREVIEW ========== */}
+        {step === 'preview' && (
+          <div style={{ background: 'white', borderRadius: '24px', padding: '40px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h2 style={{ fontSize: '28px', marginTop: 0, marginBottom: '30px', color: '#1e293b', textAlign: 'center' }}>
+              👀 Preview Hasil Foto
+            </h2>
 
-              {/* STICKERS */}
-              {placedStickers.map((s, i) => {
-                 const scale = 350 / LAYOUTS[layout].w;
-                 const isSelected = selectedStickerIdx === i;
-                 return (
-                   <img 
-                    key={s.id}
-                    src={s.url}
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LAYOUTS[layout].gridCols}, 1fr)`, gap: '16px', marginBottom: '30px' }}>
+              {capturedPhotos.map((photo, index) => (
+                <div key={photo.id} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  <img
+                    src={photo.dataUrl}
+                    alt={`Photo ${index + 1}`}
+                    style={{ width: '100%', height: 'auto', ...getFilterStyle(photo.filter) }}
+                  />
+                  <button
+                    onClick={() => retakePhoto(index)}
                     style={{
                       position: 'absolute',
-                      left: s.x * scale, top: s.y * scale,
-                      width: (200 * s.scale) * scale,
-                      border: isSelected ? '2px dashed blue' : 'none',
-                      cursor: 'grab'
+                      top: '8px',
+                      right: '8px',
+                      padding: '8px 12px',
+                      background: 'rgba(239, 68, 68, 0.9)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
                     }}
-                    // Simple Drag Logic (Mouse Only for brevity, add Touch if needed)
-                    onPointerDown={(e) => {
-                      setSelectedStickerIdx(i);
-                      // Add drag logic here or separate handlers
-                    }}
-                   />
-                 )
-              })}
+                  >
+                    🔄 Retake
+                  </button>
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '8px',
+                    left: '8px',
+                    padding: '4px 12px',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                  }}>
+                    #{index + 1}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {/* CONTROLS */}
-            <div style={{ background: '#222', padding: 20, borderRadius: 15 }}>
-              <h4>1. Pilih Frame</h4>
-              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 10 }}>
-                {COLORS.map(c => (
-                  <div key={c} onClick={() => setFrameColor(c)} style={{ minWidth: 40, height: 40, background: c, borderRadius: '50%', border: frameColor===c ? '3px solid white' : '1px solid gray', cursor: 'pointer' }} />
-                ))}
-              </div>
-
-              <h4>2. Tambah Sticker (Drag to move)</h4>
-              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 10 }}>
-                {availableStickers.map(s => (
-                  <img key={s.id} src={s.url} onClick={() => addSticker(s)} style={{ width: 60, height: 60, objectFit: 'contain', cursor: 'pointer', background: '#333', padding: 5, borderRadius: 8 }} />
-                ))}
-              </div>
-
-              {selectedStickerIdx !== null && (
-                <div style={{ marginTop: 20 }}>
-                  <button onClick={() => {
-                     const news = [...placedStickers]; news[selectedStickerIdx].scale += 0.1; setPlacedStickers(news);
-                  }} style={btnCtrl}>Besarin (+)</button>
-                   <button onClick={() => {
-                     const news = [...placedStickers]; news[selectedStickerIdx].scale -= 0.1; setPlacedStickers(news);
-                  }} style={btnCtrl}>Kecilin (-)</button>
-                  
-                  {/* D-Pad Move for precision */}
-                  <div style={{marginTop: 10, display:'flex', gap:5, justifyContent:'center'}}>
-                    <button onClick={() => updateSticker(selectedStickerIdx, { x: placedStickers[selectedStickerIdx].x - 20 })}>⬅️</button>
-                    <button onClick={() => updateSticker(selectedStickerIdx, { y: placedStickers[selectedStickerIdx].y + 20 })}>⬇️</button>
-                    <button onClick={() => updateSticker(selectedStickerIdx, { y: placedStickers[selectedStickerIdx].y - 20 })}>⬆️</button>
-                    <button onClick={() => updateSticker(selectedStickerIdx, { x: placedStickers[selectedStickerIdx].x + 20 })}>➡️</button>
-                  </div>
-
-                  <button onClick={() => {
-                    setPlacedStickers(placedStickers.filter((_, i) => i !== selectedStickerIdx));
-                    setSelectedStickerIdx(null);
-                  }} style={{...btnCtrl, background: 'red', marginTop: 10}}>Hapus Sticker</button>
-                </div>
-              )}
-
-              <button onClick={generateFinalImage} disabled={saving} style={{ width: '100%', padding: 15, background: '#10b981', color: 'white', border: 'none', borderRadius: 10, fontSize: 18, fontWeight: 'bold', marginTop: 20, cursor: 'pointer' }}>
-                {saving ? "SAVING..." : "✅ SIMPAN & SELESAI"}
+            <div style={{ display: 'flex', gap: '16px' }}>
+              <button
+                onClick={() => setStep('setup')}
+                style={{
+                  flex: 1,
+                  padding: '16px',
+                  background: '#64748b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                ← Ulang dari Awal
+              </button>
+              <button
+                onClick={() => setStep('edit')}
+                style={{
+                  flex: 2,
+                  padding: '16px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
+                }}
+              >
+                ✨ Lanjut Edit & Frame
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 4: RESULT */}
-        {step === 'RESULT' && finalImage && (
-          <div style={{ textAlign: 'center' }}>
-            <h2>✨ HASIL FOTO ✨</h2>
-            <img src={finalImage} style={{ maxWidth: '100%', borderRadius: 10, boxShadow: '0 5px 30px black' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
-              <a href={finalImage} download="photobooth.jpg" style={{ padding: 15, background: 'white', color: 'black', textDecoration: 'none', borderRadius: 30, fontWeight: 'bold' }}>DOWNLOAD IMAGE ⬇️</a>
-              <button onClick={() => window.location.reload()} style={{ padding: 15, background: '#333', color: 'white', border: '1px solid white', borderRadius: 30, cursor: 'pointer' }}>MAIN LAGI 🔄</button>
+        {/* ========== STEP 4: EDIT ========== */}
+        {step === 'edit' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '24px' }}>
+            
+            {/* LEFT: Canvas Editor */}
+            <div style={{ background: 'white', borderRadius: '24px', padding: '40px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <h2 style={{ fontSize: '24px', marginTop: 0, marginBottom: '24px', color: '#1e293b' }}>🎨 Canvas Editor</h2>
+
+              {/* Canvas Preview */}
+              <div
+                ref={canvasRef}
+                style={{
+                  width: dimensions.width / 2,
+                  height: dimensions.height / 2,
+                  position: 'relative',
+                  margin: '0 auto',
+                  background: selectedFrame.type === 'color' ? selectedFrame.color : 'white',
+                  backgroundImage: selectedFrame.type === 'image' ? `url(${selectedFrame.imageUrl})` : 'none',
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  borderRadius: '16px',
+                  overflow: 'hidden',
+                  boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                }}
+              >
+                {/* Photo Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${LAYOUTS[layout].gridCols}, 1fr)`,
+                  gridTemplateRows: `repeat(${LAYOUTS[layout].gridRows}, 1fr)`,
+                  gap: '8px',
+                  padding: '20px',
+                  height: '100%',
+                }}>
+                  {capturedPhotos.map((photo, index) => (
+                    <div key={photo.id} style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '2px solid white' }}>
+                      <img
+                        src={photo.dataUrl}
+                        alt={`Photo ${index + 1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', ...getFilterStyle(photo.filter) }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Stickers */}
+                {stickers.map(sticker => (
+                  <Draggable
+                    key={sticker.id}
+                    defaultPosition={{ x: sticker.x, y: sticker.y }}
+                    onStop={(e, data) => updateSticker(sticker.id, { x: data.x, y: data.y })}
+                  >
+                    <div
+                      onClick={() => setSelectedStickerId(sticker.id)}
+                      style={{
+                        position: 'absolute',
+                        cursor: 'move',
+                        border: selectedStickerId === sticker.id ? '3px dashed #667eea' : 'none',
+                        padding: selectedStickerId === sticker.id ? '4px' : '0',
+                      }}
+                    >
+                      <img
+                        src={sticker.imageUrl}
+                        alt={sticker.name}
+                        style={{
+                          width: sticker.width,
+                          height: sticker.height,
+                          transform: `rotate(${sticker.rotation}deg) scaleX(${sticker.flipX ? -1 : 1}) scaleY(${sticker.flipY ? -1 : 1})`,
+                          userSelect: 'none',
+                        }}
+                      />
+                    </div>
+                  </Draggable>
+                ))}
+
+                {/* Text Overlays */}
+                {textOverlays.map(text => (
+                  <Draggable
+                    key={text.id}
+                    defaultPosition={{ x: text.x, y: text.y }}
+                    onStop={(e, data) => updateText(text.id, { x: data.x, y: data.y })}
+                  >
+                    <div
+                      onClick={() => setSelectedTextId(text.id)}
+                      style={{
+                        position: 'absolute',
+                        cursor: 'move',
+                        border: selectedTextId === text.id ? '2px dashed #667eea' : 'none',
+                        padding: '4px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: text.fontSize,
+                          color: text.color,
+                          fontFamily: text.fontFamily,
+                          fontWeight: '700',
+                          textShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                          transform: `rotate(${text.rotation}deg)`,
+                          display: 'inline-block',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {text.text}
+                      </span>
+                    </div>
+                  </Draggable>
+                ))}
+              </div>
+
+              {/* Undo/Redo */}
+              <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                <button
+                  onClick={undo}
+                  disabled={historyIndex <= 0}
+                  style={{
+                    padding: '12px 24px',
+                    background: historyIndex <= 0 ? '#e2e8f0' : '#667eea',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  ↶ Undo
+                </button>
+                <button
+                  onClick={redo}
+                  disabled={historyIndex >= history.length - 1}
+                  style={{
+                    padding: '12px 24px',
+                    background: historyIndex >= history.length - 1 ? '#e2e8f0' : '#667eea',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  ↷ Redo
+                </button>
+              </div>
+
+              {/* Export Button */}
+              <button
+                onClick={exportImage}
+                disabled={isProcessing}
+                style={{
+                  width: '100%',
+                  marginTop: '24px',
+                  padding: '18px',
+                  background: isProcessing ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '16px',
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 8px 24px rgba(16, 185, 129, 0.4)',
+                }}
+              >
+                {isProcessing ? `⏳ Processing... ${uploadProgress}%` : '💾 Save & Upload'}
+              </button>
+            </div>
+
+            {/* RIGHT: Toolbox */}
+            <div style={{ background: 'white', borderRadius: '24px', padding: '30px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ fontSize: '20px', marginTop: 0, marginBottom: '20px', color: '#1e293b' }}>🧰 Toolbox</h3>
+
+              {/* Frame Selector */}
+              <div style={{ marginBottom: '24px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#475569', marginBottom: '12px', textTransform: 'uppercase' }}>
+                  🖼️ Frame
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                  {MOCK_FRAMES.map(frame => (
+                    <button
+                      key={frame.id}
+                      onClick={() => setSelectedFrame(frame)}
+                      style={{
+                        padding: '12px',
+                        border: selectedFrame.id === frame.id ? '3px solid #667eea' : '2px solid #e2e8f0',
+                        background: frame.type === 'color' ? frame.color : 'white',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        color: frame.type === 'color' ? '#1e293b' : '#64748b',
+                      }}
+                    >
+                      {frame.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sticker Picker */}
+              <div style={{ marginBottom: '24px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#475569', marginBottom: '12px', textTransform: 'uppercase' }}>
+                  ✨ Stickers
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                  {MOCK_STICKERS.map(sticker => (
+                    <button
+                      key={sticker.id}
+                      onClick={() => addSticker(sticker)}
+                      style={{
+                        padding: '8px',
+                        border: '2px solid #e2e8f0',
+                        background: 'white',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.1)')}
+                      onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                    >
+                      <img src={sticker.imageUrl} alt={sticker.name} style={{ width: '100%', height: 'auto' }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Selected Sticker Controls */}
+              {selectedStickerId && (
+                <div style={{ marginBottom: '24px', padding: '16px', background: '#f1f5f9', borderRadius: '12px' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#475569', marginBottom: '12px' }}>
+                    🎯 Sticker Controls
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button
+                      onClick={() => {
+                        const sticker = stickers.find(s => s.id === selectedStickerId);
+                        if (sticker) updateSticker(selectedStickerId, { rotation: sticker.rotation + 15 });
+                      }}
+                      style={{ padding: '8px', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      🔄 Rotate +15°
+                    </button>
+                    <button
+                      onClick={() => {
+                        const sticker = stickers.find(s => s.id === selectedStickerId);
+                        if (sticker) updateSticker(selectedStickerId, { flipX: !sticker.flipX });
+                      }}
+                      style={{ padding: '8px', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      ↔️ Flip Horizontal
+                    </button>
+                    <button
+                      onClick={() => {
+                        const sticker = stickers.find(s => s.id === selectedStickerId);
+                        if (sticker) updateSticker(selectedStickerId, { flipY: !sticker.flipY });
+                      }}
+                      style={{ padding: '8px', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      ↕️ Flip Vertical
+                    </button>
+                    <button
+                      onClick={() => deleteSticker(selectedStickerId)}
+                      style={{ padding: '8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      🗑️ Delete Sticker
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Add Text */}
+              <div style={{ marginBottom: '24px' }}>
+                <button
+                  onClick={addText}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    background: '#764ba2',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ➕ Add Text
+                </button>
+              </div>
+
+              {/* Selected Text Controls */}
+              {selectedTextId && (() => {
+                const text = textOverlays.find(t => t.id === selectedTextId);
+                if (!text) return null;
+                return (
+                  <div style={{ marginBottom: '24px', padding: '16px', background: '#f1f5f9', borderRadius: '12px' }}>
+                    <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#475569', marginBottom: '12px' }}>
+                      📝 Text Controls
+                    </h4>
+                    <input
+                      type="text"
+                      value={text.text}
+                      onChange={e => updateText(selectedTextId, { text: e.target.value })}
+                      style={{ width: '100%', padding: '8px', marginBottom: '8px', border: '2px solid #e2e8f0', borderRadius: '6px', fontSize: '14px' }}
+                      placeholder="Your text here..."
+                    />
+                    <input
+                      type="number"
+                      value={text.fontSize}
+                      onChange={e => updateText(selectedTextId, { fontSize: parseInt(e.target.value) || 32 })}
+                      style={{ width: '100%', padding: '8px', marginBottom: '8px', border: '2px solid #e2e8f0', borderRadius: '6px', fontSize: '14px' }}
+                      placeholder="Font size"
+                    />
+                    <input
+                      type="color"
+                      value={text.color}
+                      onChange={e => updateText(selectedTextId, { color: e.target.value })}
+                      style={{ width: '100%', padding: '8px', marginBottom: '8px', border: '2px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer' }}
+                    />
+                    <button
+                      onClick={() => deleteText(selectedTextId)}
+                      style={{ width: '100%', padding: '8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      🗑️ Delete Text
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
 
+        {/* ========== STEP 5: FINAL ========== */}
+        {step === 'final' && finalImageUrl && (
+          <div style={{ background: 'white', borderRadius: '24px', padding: '40px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '32px', marginTop: 0, marginBottom: '20px', color: '#1e293b' }}>
+              🎉 Sukses! Foto Kamu Keren Banget!
+            </h2>
+            
+            <img
+              src={finalImageUrl}
+              alt="Final Result"
+              style={{ maxWidth: '400px', width: '100%', height: 'auto', borderRadius: '16px', marginBottom: '30px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
+            />
+
+            <div style={{ background: '#f1f5f9', padding: '24px', borderRadius: '16px', marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '18px', marginTop: 0, marginBottom: '16px', color: '#1e293b' }}>
+                📱 Scan QR untuk Download
+              </h3>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                <QRCodeSVG value={finalImageUrl} size={200} />
+              </div>
+              <a
+                href={finalImageUrl}
+                download="photo-booth-result.jpg"
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 32px',
+                  background: '#667eea',
+                  color: 'white',
+                  textDecoration: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  marginRight: '12px',
+                }}
+              >
+                ⬇️ Download
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(finalImageUrl);
+                  alert('Link copied!');
+                }}
+                style={{
+                  padding: '12px 32px',
+                  background: '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                }}
+              >
+                📋 Copy Link
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setStep('setup');
+                setCapturedPhotos([]);
+                setStickers([]);
+                setTextOverlays([]);
+                setFinalImageUrl(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '18px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                fontSize: '18px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+              }}
+            >
+              🔄 Foto Lagi!
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Inline Keyframes for Animation */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }
+        }
+      `}</style>
     </div>
   );
 }
-
-// STYLES HELPER
-const selStyle = (active: boolean) => ({
-  flex: 1, padding: 15, borderRadius: 10, border: active ? '2px solid #3b82f6' : '1px solid #444',
-  background: active ? 'rgba(59, 130, 246, 0.2)' : '#222', color: 'white', cursor: 'pointer', fontWeight: 'bold'
-});
-
-const btnCtrl = {
-  padding: '5px 10px', margin: '0 5px', borderRadius: 5, border: 'none', cursor: 'pointer'
-};
