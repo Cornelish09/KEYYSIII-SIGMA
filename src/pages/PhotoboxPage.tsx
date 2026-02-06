@@ -1173,7 +1173,7 @@ export function PhotoboxPage() {
                 }}
               >
                 ⬇️ Download
-              </button>
+              </a>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(finalImageUrl);
