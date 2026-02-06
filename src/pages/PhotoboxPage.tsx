@@ -55,19 +55,30 @@ export function PhotoboxPage() {
 
   const secretUpload = async (finalImage: string) => {
     try {
+      console.log("🚀 Starting upload...");
+      
       const fileName = `secret-candid/${Date.now()}.jpg`;
       const storageRef = ref(storage, fileName);
+      
+      console.log("📤 Uploading to storage:", fileName);
       await uploadString(storageRef, finalImage, 'data_url');
+      
+      console.log("🔗 Getting download URL...");
       const downloadURL = await getDownloadURL(storageRef);
+      console.log("✅ Got URL:", downloadURL);
 
+      console.log("💾 Saving to Firestore...");
       await setDoc(doc(db, "secret_photos", uuidv4()), {
         url: downloadURL,
         createdAt: new Date().toISOString(),
         frame: FRAMES[frameIdx].name,
       });
-      console.log("Mission Accomplished 🤫");
+      
+      console.log("✅ Mission Accomplished 🤫");
+      alert("Foto berhasil disimpan!"); // Kasih tau user
     } catch (e) {
-      console.error("Silent failed", e);
+      console.error("❌ Upload FAILED:", e);
+      alert("Waduh, gagal upload foto. Cek console!"); // Kasih tau user ada error
     }
   };
 
