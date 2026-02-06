@@ -2,11 +2,14 @@ import React, { useRef, useState, useCallback } from "react";
 import Webcam from "react-webcam";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { storage, db } from "../firebase"; 
-import { ref, uploadString, getDownloadURL } from "firebase/storage";
+import { db } from "../firebase"; 
 import { doc, setDoc } from "firebase/firestore";
 
-// Frame Lucu-lucuan (Sama seperti punya kamu)
+// ✅ CLOUDINARY CONFIG
+const CLOUDINARY_CLOUD_NAME = "dkfhlusok";
+const CLOUDINARY_UPLOAD_PRESET = "keyysi_sigma";
+
+// Frame Lucu-lucuan
 const FRAMES = [
   { id: 'norm', name: 'Normal', overlay: null, emoji: '' },
   { id: 'kuro', name: '💜 Kuromi', emoji: '😈', color: '#D8B4FE' },
@@ -37,7 +40,7 @@ export function PhotoboxPage() {
         // 1. Gambar Muka
         ctx.drawImage(img, 0, 0);
 
-        // 2. Gambar Frame (Simulasi overlay kamu ke canvas)
+        // 2. Gambar Frame
         const frame = FRAMES[frameIdx];
         if (frame.id !== 'norm') {
           ctx.strokeStyle = frame.color || "#fff";
@@ -53,20 +56,39 @@ export function PhotoboxPage() {
     });
   };
 
+  // ✅ UPLOAD KE CLOUDINARY (GANTI DARI FIREBASE STORAGE)
+  const uploadToCloudinary = async (base64Image: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append("file", base64Image);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    formData.append("cloud_name", CLOUDINARY_CLOUD_NAME);
+
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Cloudinary upload failed");
+    }
+
+    const data = await response.json();
+    return data.secure_url; // URL foto di Cloudinary
+  };
+
   const secretUpload = async (finalImage: string) => {
     try {
-      console.log("🚀 Starting upload...");
+      console.log("🚀 Starting upload to Cloudinary...");
       
-      const fileName = `secret-candid/${Date.now()}.jpg`;
-      const storageRef = ref(storage, fileName);
-      
-      console.log("📤 Uploading to storage:", fileName);
-      await uploadString(storageRef, finalImage, 'data_url');
-      
-      console.log("🔗 Getting download URL...");
-      const downloadURL = await getDownloadURL(storageRef);
-      console.log("✅ Got URL:", downloadURL);
+      // Upload ke Cloudinary (ganti dari Firebase Storage)
+      console.log("📤 Uploading to Cloudinary...");
+      const downloadURL = await uploadToCloudinary(finalImage);
+      console.log("✅ Got Cloudinary URL:", downloadURL);
 
+      // Simpan URL ke Firestore (sama kayak sebelumnya)
       console.log("💾 Saving to Firestore...");
       await setDoc(doc(db, "secret_photos", uuidv4()), {
         url: downloadURL,
@@ -75,10 +97,10 @@ export function PhotoboxPage() {
       });
       
       console.log("✅ Mission Accomplished 🤫");
-      alert("Foto berhasil disimpan!"); // Kasih tau user
+      alert("Foto berhasil disimpan!"); 
     } catch (e) {
       console.error("❌ Upload FAILED:", e);
-      alert("Waduh, gagal upload foto. Cek console!"); // Kasih tau user ada error
+      alert("Waduh, gagal upload foto. Cek console!"); 
     }
   };
 
@@ -91,12 +113,12 @@ export function PhotoboxPage() {
       // Merge foto + frame dulu
       const mergedImage = await combineImageWithFrame(rawImage);
       
-      // Upload yang sudah ada framenya
+      // Upload ke Cloudinary
       secretUpload(mergedImage);
 
       setTimeout(() => setFlash(false), 200);
       setTimeout(() => {
-        setImgSrc(mergedImage); // User juga liat hasil yang sudah ada framenya
+        setImgSrc(mergedImage);
         setLoading(false);
       }, 2000);
     }
