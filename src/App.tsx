@@ -38,7 +38,7 @@ export default function App() {
   // ✅ LOGIKA SINKRONISASI REALTIME (FIREBASE -> UI)
   React.useEffect(() => {
     // Path harus sama dengan Admin.tsx
-    const docRef = doc(db, "configs", "main-config"); 
+    const docRef = doc(db, "configs", "main_config");
 
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {

@@ -76,33 +76,26 @@ export function Admin() {
 
   // --- LOGIKA REAL-TIME GALLERY ---
   useEffect(() => {
-    // Kita panggil library firestore-nya secara dinamis
+    let unsubscribe: any;
+
     const startListener = async () => {
       if (activeTab !== 'gallery') return;
-
+      
+      // Import onSnapshot biar real-time
       const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
       const q = query(collection(db, "photos"), orderBy("createdAt", "desc"));
 
-      // onSnapshot ini yang bikin foto muncul OTOMATIS tanpa refresh
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribe = onSnapshot(q, (snapshot) => {
         const photos = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
         setUserPhotos(photos);
-        console.log("Gallery updated!");
-      }, (error) => {
-        console.error("Gagal dengerin foto:", error);
       });
-
-      return unsubscribe;
     };
 
-    let unsub: any;
-    startListener().then(u => unsub = u);
-
-    // Bersihin listener pas pindah tab biar gak lemot
-    return () => { if(unsub) unsub(); };
+    startListener();
+    return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
   // --- CRUD HELPERS ---
