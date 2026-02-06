@@ -21,6 +21,7 @@ import { Outfits } from "./pages/Outfits";
 import { Final } from "./pages/Final";
 import { Admin } from "./pages/Admin";
 import { NotFound } from "./pages/NotFound";
+import { PhotoboxPage } from "./pages/PhotoboxPage"; // <--- IMPORT INI
 
 function enforceStep(pathname: string, stateStep: AppState["step"]): string | null {
   const pageStep = stepForPath(pathname);
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="/letter" element={<Letter cfg={cfg} state={state} setState={setState} />} />
           <Route path="/places" element={<Places cfg={cfg} state={state} setState={setState} />} />
           <Route path="/outfits" element={<Outfits cfg={cfg} state={state} setState={setState} />} />
+          <Route path="/photobox" element={<PhotoboxPage />} />
           <Route path="/done" element={<Navigate to="/final" replace />} />
           <Route path="/final/*" element={<Final cfg={cfg} state={state} />} />
           <Route path="/admin/*" element={<Admin />} />

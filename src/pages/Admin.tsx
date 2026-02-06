@@ -47,7 +47,7 @@ export function Admin() {
 
   const handleSave = async () => {
     try {
-      const docRef = doc(db, "configs", "main-config");
+      const docRef = doc(db, "configs", "main_config"); // Pake underscore (_) biar sama kayak storage.ts
       
       // 1. Ambil data terbaru dari state admin
       const dataToSave = { ...cfg };

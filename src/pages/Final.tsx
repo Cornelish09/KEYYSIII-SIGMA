@@ -271,6 +271,16 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
             <button className="btn-act btn-outline" onClick={() => setShowResetModal(true)}>
               Reset Plan
             </button>
+            
+            {/* TOMBOL BARU 👇 */}
+            <button 
+              className="btn-act" 
+              style={{ background: 'linear-gradient(45deg, #7c3aed, #db2777)', color: '#fff', border: 'none' }}
+              onClick={() => navigate('/photobox')}
+            >
+              After Party Photo 📸
+            </button>
+
             <button className="btn-act btn-primary" onClick={() => setShowReceipt(true)}>
               Capture Plan ✨
             </button>

