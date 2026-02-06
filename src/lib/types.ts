@@ -15,15 +15,34 @@ export type Place = {
 
 export type Outfit = {
   id: string;
-  name: string;        // Wajib ada untuk Final.tsx
+  name: string;
   title?: string;      
   description: string; 
   vibeNote?: string;   
-  image: string;       // Wajib ada untuk visual-col
+  image: string;
   style: string;
   palette?: string[];  
   herColors?: string[]; 
   himColors?: string[]; 
+};
+
+// ✅ TAMBAHAN: Photo Template Types
+export type PhotoSlot = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type PhotoTemplate = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  photoCount: number;
+  slots: PhotoSlot[];
+  canvasWidth: number;
+  canvasHeight: number;
+  createdAt: string;
 };
 
 export type ContentConfig = {
@@ -54,7 +73,6 @@ export type ContentConfig = {
     subtitle?: string;
     items: Outfit[];
   };
-  // SUDAH BENAR: Ini yang bikin Final.tsx gak merah lagi
   rundown?: {
     time: string;
     label: string;

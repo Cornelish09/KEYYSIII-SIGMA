@@ -5,6 +5,25 @@ import type { ContentConfig, Place, Outfit } from "../lib/types";
 import { loadConfig, saveConfig, resetConfig, clearLogs } from "../lib/storage";
 import { logEvent } from "../lib/activity";
 
+// ✅ TAMBAHAN: Photo Template Types
+type PhotoSlot = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type PhotoTemplate = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  photoCount: number;
+  slots: PhotoSlot[];
+  canvasWidth: number;
+  canvasHeight: number;
+  createdAt: string;
+};
+
 // --- HELPER FUNCTIONS ---
 function randomId(prefix: string) {
   return prefix + "-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
@@ -25,8 +44,11 @@ export function Admin() {
   const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'tools' | 'gallery' | 'templates'>('general');
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
   const [userPhotos, setUserPhotos] = useState<any[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
+  
+  // ✅ TAMBAHAN: Template States
+  const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<PhotoTemplate | null>(null);
 
   useEffect(() => {
     document.title = "Admin — Hangout Card";
@@ -38,55 +60,37 @@ export function Admin() {
     logEvent("admin_verify", { ok: good });
   };
 
-  // --- LOGIKA PENYIMPANAN ---
-  // GANTI: Supaya update state lebih reaktif
   const updateConfig = (newCfg: ContentConfig) => {
     setCfg(prev => {
       const updated = { ...prev, ...newCfg };
-      saveConfig(updated); // Simpan ke local storage
+      saveConfig(updated);
       return updated;
     });
   };
 
   const handleSave = async () => {
     try {
-      const docRef = doc(db, "configs", "main_config"); // Pake underscore (_) biar sama kayak storage.ts
-      
-      // 1. Ambil data terbaru dari state admin
+      const docRef = doc(db, "configs", "main_config");
       const dataToSave = { ...cfg };
-
-      // 2. Kirim ke Firebase (Cloud)
       await setDoc(docRef, dataToSave);
-      
-      // 3. PAKSA simpan ke LocalStorage Laptop lo juga (biar gak bentrok)
       saveConfig(dataToSave); 
       localStorage.setItem("hangout_card_config_v1", JSON.stringify(dataToSave));
-
-      // 4. Kasih tau browser kalau ada perubahan data (untuk tab user di laptop)
       window.dispatchEvent(new Event("storage"));
-
       alert("✅ Publish Berhasil! Coba cek HP, harusnya udah berubah.");
-      
-      // Log aktivitas biar lo tau ini jalan
       logEvent("admin_save_success", { time: new Date().getTime() });
-      
     } catch (e) {
       console.error("Error pas mau save:", e);
       alert("Waduh, gagal connect ke Firebase. Cek internet bro!");
     }
   };
 
-  // --- LOGIKA REAL-TIME GALLERY ---
+  // --- GALLERY LISTENER ---
   useEffect(() => {
     let unsubscribe: any;
-
     const startListener = async () => {
       if (activeTab !== 'gallery') return;
-      
-      // Import onSnapshot biar real-time
       const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
       const q = query(collection(db, "secret_photos"), orderBy("createdAt", "desc"));
-
       unsubscribe = onSnapshot(q, (snapshot) => {
         const photos = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -95,10 +99,125 @@ export function Admin() {
         setUserPhotos(photos);
       });
     };
-
     startListener();
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
+
+  // ✅ TAMBAHAN: TEMPLATES LISTENER
+  useEffect(() => {
+    let unsubscribe: any;
+    const startListener = async () => {
+      if (activeTab !== 'templates') return;
+      const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
+      const q = query(collection(db, "photobox_templates"), orderBy("createdAt", "desc"));
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const temps = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as PhotoTemplate[];
+        setTemplates(temps);
+      });
+    };
+    startListener();
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [activeTab]);
+
+  // ✅ TAMBAHAN: TEMPLATE FUNCTIONS
+  const uploadTemplateToCloudinary = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", "keyysi_sigma"); // ⚠️ GANTI SESUAI PRESET LO
+    formData.append("cloud_name", "dkfhlusok");       // ⚠️ GANTI SESUAI CLOUD NAME LO
+
+    const response = await fetch(
+      "https://api.cloudinary.com/v1_1/dkfhlusok/image/upload",
+      { method: "POST", body: formData }
+    );
+
+    if (!response.ok) throw new Error("Upload failed");
+    const data = await response.json();
+    return data.secure_url;
+  };
+
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.includes('image/png')) {
+      alert("❌ Hanya file PNG yang diperbolehkan!");
+      return;
+    }
+
+    const name = prompt("📝 Nama template (contoh: Valentine Frame):");
+    if (!name) return;
+
+    const photoCountStr = prompt("📸 Jumlah foto (1-4):");
+    const photoCount = parseInt(photoCountStr || "1");
+    
+    if (photoCount < 1 || photoCount > 4) {
+      alert("❌ Jumlah foto harus 1-4!");
+      return;
+    }
+
+    setUploadingTemplate(true);
+    try {
+      const imageUrl = await uploadTemplateToCloudinary(file);
+      
+      const defaultSlots: PhotoSlot[] = [];
+      for (let i = 0; i < photoCount; i++) {
+        defaultSlots.push({
+          x: 50,
+          y: 50 + (i * 300),
+          width: 400,
+          height: 250
+        });
+      }
+      
+      const { doc, setDoc } = await import("firebase/firestore");
+      const templateId = Date.now().toString();
+      const newTemplate: PhotoTemplate = {
+        id: templateId,
+        name,
+        imageUrl,
+        photoCount,
+        slots: defaultSlots,
+        canvasWidth: 1080,
+        canvasHeight: 1350,
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "photobox_templates", templateId), newTemplate);
+      alert("✅ Template berhasil di-upload! Sekarang atur posisi slot foto.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Gagal upload template");
+    }
+    setUploadingTemplate(false);
+  };
+
+  const deleteTemplate = async (id: string) => {
+    if (!confirm("🗑️ Hapus template ini?")) return;
+    try {
+      const { doc, deleteDoc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "photobox_templates", id));
+      alert("✅ Template berhasil dihapus!");
+    } catch (err) {
+      alert("❌ Gagal hapus template");
+    }
+  };
+
+  const saveSlotChanges = async (template: PhotoTemplate) => {
+    try {
+      const { doc, updateDoc } = await import("firebase/firestore");
+      await updateDoc(doc(db, "photobox_templates", template.id), {
+        slots: template.slots
+      });
+      alert("✅ Slot posisi berhasil disimpan!");
+      setEditingTemplate(null);
+    } catch (err) {
+      alert("❌ Gagal simpan perubahan");
+    }
+  };
 
   // --- CRUD HELPERS ---
   const updatePlace = (idx: number, field: keyof Place, val: any) => {
@@ -163,7 +282,7 @@ export function Admin() {
         canvas.height = height;
         const ctx = canvas.getContext('2d', { alpha: false });
         ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7); // 0.7 biar file size lebih aman buat Firebase
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
         callback(dataUrl);
       };
       img.src = event.target?.result as string;
@@ -191,19 +310,6 @@ export function Admin() {
   const addOutfit = () => {
     const newItem: Outfit = { id: randomId("outfit"), name: "New Style", description: "", image: "", style: "casual", palette: [] };
     updateConfig({ ...cfg, outfits: { ...(cfg.outfits || { headline: "Outfit", subtitle: "Style" }), items: [newItem, ...(cfg.outfits?.items || [])] } });
-  };
-
-  const addRundownItem = () => {
-    const currentRundown = cfg.rundown || [];
-    const newItem = { time: "00:00", label: "BARU", desc: "", type: "static" };
-    updateConfig({ ...cfg, rundown: [...currentRundown, newItem] });
-  };
-
-  const removeRundownItem = (idx: number) => {
-    if(!confirm("Hapus jadwal ini?")) return;
-    const newRd = [...(cfg.rundown || [])];
-    newRd.splice(idx, 1);
-    updateConfig({ ...cfg, rundown: newRd });
   };
 
   const removeItem = (type: 'place' | 'outfit', idx: number) => {
@@ -251,6 +357,7 @@ export function Admin() {
         .btn-primary { background: #3b82f6; color: white; }
         .btn-success { background: #10b981; color: white; }
         .btn-danger { background: #ef4444; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
         .save-btn { position: fixed; top: 20px; right: 20px; z-index: 100; background: #10b981; color: white; padding: 12px 24px; border-radius: 50px; font-weight: 700; box-shadow: 0 10px 20px rgba(0,0,0,0.3); border: none; cursor: pointer; transition: 0.3s; }
         .save-btn:hover { transform: scale(1.05); }
         .tag-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -265,6 +372,9 @@ export function Admin() {
         .palette-item:hover { transform: scale(1.1); }
         .palette-item:hover::after { content: '×'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; color: rgba(255,255,255,0.8); font-weight: bold; }
         .color-picker-input { width: 32px; height: 32px; padding: 0; border: none; background: transparent; cursor: pointer; }
+        .slot-editor { background: #0f172a; padding: 20px; border-radius: 12px; margin-top: 20px; }
+        .slot-input-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px; }
+        .slot-input-group input { background: #1e293b; border: 1px solid #334155; color: white; padding: 8px 12px; border-radius: 6px; }
       `}</style>
 
       <button className="save-btn" onClick={handleSave}>
@@ -276,99 +386,22 @@ export function Admin() {
         <button className={`nav-btn ${activeTab === 'general' ? 'active' : ''}`} onClick={() => setActiveTab('general')}>🏠 General</button>
         <button className={`nav-btn ${activeTab === 'places' ? 'active' : ''}`} onClick={() => setActiveTab('places')}>📍 Places Manager</button>
         <button className={`nav-btn ${activeTab === 'outfits' ? 'active' : ''}`} onClick={() => setActiveTab('outfits')}>👗 Outfit Manager</button>
-        <button className={`nav-btn ${activeTab === 'tools' ? 'active' : ''}`} onClick={() => setActiveTab('tools')}>🔧 Tools</button>
+        <button className={`nav-btn ${activeTab === 'templates' ? 'active' : ''}`} onClick={() => setActiveTab('templates')}>🎨 Template Manager</button>
         <button className={`nav-btn ${activeTab === 'gallery' ? 'active' : ''}`} onClick={() => setActiveTab('gallery')}>📸 User Gallery</button>
+        <button className={`nav-btn ${activeTab === 'tools' ? 'active' : ''}`} onClick={() => setActiveTab('tools')}>🔧 Tools</button>
       </div>
 
       <div className="main-content">
         {activeTab === 'general' && (
           <div>
             <div className="section-title">General Settings</div>
-            
-            {/* 1. MUSIC & LETTER */}
             <div className="card">
               <label className="label">Background Music (MP3 URL)</label>
               <input className="input" value={cfg.music || ""} onChange={e => updateConfig({...cfg, music: e.target.value})} placeholder="/audio/song.mp3" />
             </div>
-            
             <div className="card">
               <label className="label">Isi Surat (Letter)</label>
               <textarea className="textarea" style={{ height: 200 }} value={cfg.letter?.text || ""} onChange={e => updateConfig({...cfg, letter: { ...cfg.letter, text: e.target.value }})} />
-            </div>
-
-            {/* 2. RUNDOWN MANAGER */}
-            <div className="card">
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
-                <h3 style={{fontSize:16, margin:0}}>Edit Rundown Acara</h3>
-                <button 
-                  className="btn btn-success" 
-                  style={{padding:'5px 12px', fontSize:12}}
-                  onClick={() => {
-                    const currentRd = cfg.rundown || [];
-                    const newItem = { time: "16:30", label: "BARU", desc: "Deskripsi...", type: "static" };
-                    updateConfig({...cfg, rundown: [...currentRd, newItem]});
-                  }}
-                >
-                  + Tambah Jadwal
-                </button>
-              </div>
-
-              {(cfg.rundown || []).length === 0 && (
-                <div style={{textAlign:'center', padding:'20px', border:'1px dashed #334155', borderRadius:8, color:'#64748b', fontSize:13}}>
-                  Belum ada rundown. Klik tombol tambah di atas.
-                </div>
-              )}
-
-              {(cfg.rundown || []).map((rd, idx) => (
-                <div key={idx} style={{display:'flex', gap:10, marginBottom:10, background:'#0f172a', padding:10, borderRadius:8, alignItems:'center'}}>
-                  <input className="input" style={{flex:1}} value={rd.time} onChange={(e) => {
-                    const newRd = [...cfg.rundown!];
-                    newRd[idx].time = e.target.value;
-                    updateConfig({...cfg, rundown: newRd});
-                  }} placeholder="Jam" />
-                  
-                  <input className="input" style={{flex:1}} value={rd.label} onChange={(e) => {
-                    const newRd = [...cfg.rundown!];
-                    newRd[idx].label = e.target.value;
-                    updateConfig({...cfg, rundown: newRd});
-                  }} placeholder="Label" />
-                  
-                  <input className="input" style={{flex:2}} value={rd.desc} onChange={(e) => {
-                    const newRd = [...cfg.rundown!];
-                    newRd[idx].desc = e.target.value;
-                    updateConfig({...cfg, rundown: newRd});
-                  }} placeholder="Deskripsi" />
-                  
-                  <select className="input" style={{flex:1.2}} value={rd.type} onChange={(e) => {
-                    const newRd = [...cfg.rundown!];
-                    newRd[idx].type = e.target.value as any;
-                    updateConfig({...cfg, rundown: newRd});
-                  }}>
-                    <option value="static">Static (Teks)</option>
-                    <option value="dinner">Dinner (Pilihan User)</option>
-                    <option value="snack">Snack (Pilihan User)</option>
-                    <option value="dessert">Dessert (Pilihan User)</option>
-                  </select>
-
-                  <button 
-                    onClick={() => {
-                      if(confirm("Hapus baris ini?")) {
-                        const newRd = [...cfg.rundown!];
-                        newRd.splice(idx, 1);
-                        updateConfig({...cfg, rundown: newRd});
-                      }
-                    }}
-                    style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:18, fontWeight:'bold', padding:'0 5px'}}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              
-              <p style={{fontSize:11, color:'#64748b', marginTop:15}}>
-                * <b>Static:</b> Teks deskripsi bebas. <br/>
-                * <b>Pilihan User:</b> Otomatis nampilin nama tempat yang dipilih Keysia nanti.
-              </p>
             </div>
           </div>
         )}
@@ -464,19 +497,222 @@ export function Admin() {
           </div>
         )}
 
-        {activeTab === 'tools' && (
-          <div className="card">
-            <h3 style={{fontSize:16}}>Backup & Restore</h3>
-            <div style={{ display: 'flex', gap: 15, marginTop: 20 }}>
-              <button className="btn btn-primary" onClick={() => {
-                   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cfg));
-                   const downloadAnchorNode = document.createElement('a');
-                   downloadAnchorNode.setAttribute("href", dataStr);
-                   downloadAnchorNode.setAttribute("download", "backup-hangout.json");
-                   downloadAnchorNode.click();
-              }}>Download Backup</button>
-              <button className="btn btn-danger" onClick={() => { if(confirm("Reset data ke awal? Semua perubahan lo bakal hilang.")) { resetConfig(); window.location.reload(); } }}>Factory Reset</button>
+        {/* ✅ TEMPLATE MANAGER TAB */}
+        {activeTab === 'templates' && (
+          <div>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
+              <div className="section-title" style={{marginBottom:0, border:0}}>🎨 Photobox Template Manager</div>
+              <label className="btn btn-success" style={{cursor:'pointer'}}>
+                {uploadingTemplate ? "⏳ Uploading..." : "+ Upload Template"}
+                <input 
+                  type="file" 
+                  accept="image/png" 
+                  style={{display:'none'}} 
+                  onChange={handleTemplateUpload}
+                  disabled={uploadingTemplate}
+                />
+              </label>
             </div>
+
+            <div className="card">
+              <h3 style={{fontSize:14, color:'#94a3b8', marginTop:0}}>📋 PANDUAN UPLOAD TEMPLATE:</h3>
+              <ul style={{color:'#cbd5e1', fontSize:13, lineHeight:1.8}}>
+                <li>✅ Format: <b>PNG dengan background TRANSPARAN</b></li>
+                <li>📐 Size recommended: <b>1080x1350px</b> (Instagram Portrait)</li>
+                <li>🎨 Design frame/border di Canva, export as PNG</li>
+                <li>📍 Bagian tempat foto harus transparan (nanti bisa atur koordinat slot)</li>
+                <li>💡 Bisa bikin banyak template, user nanti pilih sendiri</li>
+                <li>🔢 Tentukan jumlah foto (1-4), nanti atur posisi slot foto di editor</li>
+              </ul>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+              {templates.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b', gridColumn: '1 / -1' }}>
+                  🎨 Belum ada template. Upload template pertama lo!
+                </div>
+              ) : (
+                templates.map((template) => (
+                  <div key={template.id} className="card">
+                    <div style={{
+                      width: '100%',
+                      height: 350,
+                      background: 'repeating-conic-gradient(#0f172a 0% 25%, #1e293b 0% 50%) 50% / 20px 20px',
+                      borderRadius: 12,
+                      marginBottom: 15,
+                      overflow: 'hidden',
+                      position: 'relative'
+                    }}>
+                      <img 
+                        src={template.imageUrl} 
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+                        alt={template.name} 
+                      />
+                      
+                      {template.slots.map((slot, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            position: 'absolute',
+                            left: `${(slot.x / template.canvasWidth) * 100}%`,
+                            top: `${(slot.y / template.canvasHeight) * 100}%`,
+                            width: `${(slot.width / template.canvasWidth) * 100}%`,
+                            height: `${(slot.height / template.canvasHeight) * 100}%`,
+                            border: '2px dashed #3b82f6',
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 12,
+                            color: '#3b82f6',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          SLOT {idx + 1}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ fontSize: '16px', color: '#fff', fontWeight: 'bold', marginBottom: 8 }}>
+                      {template.name}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: 12 }}>
+                      📸 {template.photoCount} foto | 📐 {template.canvasWidth}x{template.canvasHeight}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginBottom: 15 }}>
+                      📅 {new Date(template.createdAt).toLocaleDateString('id-ID')}
+                    </div>
+
+                    <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                      <button 
+                        className="btn btn-primary"
+                        style={{flex:1, fontSize:12, padding:'10px'}}
+                        onClick={() => setEditingTemplate(template)}
+                      >
+                        ⚙️ Edit Slots
+                      </button>
+                      <a 
+                        href={template.imageUrl} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="btn btn-secondary"
+                        style={{flex:1, textAlign:'center', textDecoration:'none', fontSize:12, padding:'10px'}}
+                      >
+                        👁️ Preview
+                      </a>
+                      <button 
+                        className="btn btn-danger" 
+                        onClick={() => deleteTemplate(template.id)}
+                        style={{fontSize:12, padding:'10px 16px'}}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* SLOT EDITOR MODAL */}
+            {editingTemplate && (
+              <div style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.9)',
+                zIndex: 9999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 20
+              }}>
+                <div style={{
+                  background: '#1e293b',
+                  borderRadius: 16,
+                  padding: 30,
+                  maxWidth: 600,
+                  width: '100%',
+                  maxHeight: '90vh',
+                  overflowY: 'auto'
+                }}>
+                  <h2 style={{color:'white', marginTop:0}}>⚙️ Edit Slot Posisi: {editingTemplate.name}</h2>
+                  <p style={{color:'#94a3b8', fontSize:13, marginBottom:20}}>
+                    Canvas size: {editingTemplate.canvasWidth} x {editingTemplate.canvasHeight} pixels
+                  </p>
+
+                  {editingTemplate.slots.map((slot, idx) => (
+                    <div key={idx} className="slot-editor">
+                      <h4 style={{color:'#3b82f6', marginTop:0}}>📸 Slot {idx + 1}</h4>
+                      <div className="slot-input-group">
+                        <div>
+                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>X (px)</label>
+                          <input 
+                            type="number"
+                            value={slot.x}
+                            onChange={(e) => {
+                              const newSlots = [...editingTemplate.slots];
+                              newSlots[idx].x = parseInt(e.target.value) || 0;
+                              setEditingTemplate({...editingTemplate, slots: newSlots});
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Y (px)</label>
+                          <input 
+                            type="number"
+                            value={slot.y}
+                            onChange={(e) => {
+                              const newSlots = [...editingTemplate.slots];
+                              newSlots[idx].y = parseInt(e.target.value) || 0;
+                              setEditingTemplate({...editingTemplate, slots: newSlots});
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Width (px)</label>
+                          <input 
+                            type="number"
+                            value={slot.width}
+                            onChange={(e) => {
+                              const newSlots = [...editingTemplate.slots];
+                              newSlots[idx].width = parseInt(e.target.value) || 0;
+                              setEditingTemplate({...editingTemplate, slots: newSlots});
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Height (px)</label>
+                          <input 
+                            type="number"
+                            value={slot.height}
+                            onChange={(e) => {
+                              const newSlots = [...editingTemplate.slots];
+                              newSlots[idx].height = parseInt(e.target.value) || 0;
+                              setEditingTemplate({...editingTemplate, slots: newSlots});
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div style={{display:'flex', gap:10, marginTop:20}}>
+                    <button 
+                      className="btn btn-success" 
+                      style={{flex:1}}
+                      onClick={() => saveSlotChanges(editingTemplate)}
+                    >
+                      ✅ Simpan Perubahan
+                    </button>
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={() => setEditingTemplate(null)}
+                    >
+                      ❌ Batal
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -485,7 +721,7 @@ export function Admin() {
             <div className="section-title">Hasil Foto Photobox</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
               {userPhotos.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b', gridColumn: '1 / -1' }}>
                   📸 Belum ada foto yang masuk dari Keysia.
                 </div>
               ) : (
@@ -510,6 +746,22 @@ export function Admin() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'tools' && (
+          <div className="card">
+            <h3 style={{fontSize:16}}>Backup & Restore</h3>
+            <div style={{ display: 'flex', gap: 15, marginTop: 20 }}>
+              <button className="btn btn-primary" onClick={() => {
+                   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cfg));
+                   const downloadAnchorNode = document.createElement('a');
+                   downloadAnchorNode.setAttribute("href", dataStr);
+                   downloadAnchorNode.setAttribute("download", "backup-hangout.json");
+                   downloadAnchorNode.click();
+              }}>Download Backup</button>
+              <button className="btn btn-danger" onClick={() => { if(confirm("Reset data ke awal? Semua perubahan lo bakal hilang.")) { resetConfig(); window.location.reload(); } }}>Factory Reset</button>
             </div>
           </div>
         )}
