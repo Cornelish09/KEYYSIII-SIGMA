@@ -203,7 +203,20 @@ export function Admin() {
   const handleSave = async () => {
     try {
       const docRef = doc(db, "configs", "main_config");
-      const dataToSave = { ...cfg };
+      
+      // ✅ Convert schedules ke format yang compatible dengan Final.tsx
+      const formattedRundown = schedules.map(s => ({
+        time: `${s.timeStart}-${s.timeEnd}`,
+        label: s.activity,
+        desc: s.description,
+        type: s.category === 'static' ? 'static' : s.category
+      }));
+      
+      const dataToSave = { 
+        ...cfg,
+        rundown: formattedRundown // ✅ Tambahkan rundown ke config
+      };
+      
       await setDoc(docRef, dataToSave);
       saveConfig(dataToSave); 
       localStorage.setItem("hangout_card_config_v1", JSON.stringify(dataToSave));
@@ -247,16 +260,33 @@ export function Admin() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
-  // Load schedules from Firestore
+  // Load schedules from main_config
   useEffect(() => {
     let unsubscribe: any;
     const startListener = async () => {
       if (activeTab !== 'general') return;
-      const { collection, query, onSnapshot } = await import("firebase/firestore");
-      const q = query(collection(db, "schedules"));
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ScheduleItem[];
-        setSchedules(items.sort((a, b) => a.timeStart.localeCompare(b.timeStart)));
+      const { doc, onSnapshot } = await import("firebase/firestore");
+      const docRef = doc(db, "configs", "main_config");
+      
+      unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.rundown && Array.isArray(data.rundown)) {
+            // Convert back from rundown format to schedule format
+            const converted: ScheduleItem[] = data.rundown.map((r: any) => {
+              const [timeStart, timeEnd] = r.time.split('-');
+              return {
+                id: randomId("schedule"),
+                timeStart: timeStart || "16:00",
+                timeEnd: timeEnd || "17:00",
+                activity: r.label || "",
+                description: r.desc || "",
+                category: r.type || "static"
+              };
+            });
+            setSchedules(converted);
+          }
+        }
       });
     };
     startListener();
@@ -327,28 +357,6 @@ export function Admin() {
       alert("✅ Slot posisi berhasil disimpan!");
       setEditingTemplate(null);
     } catch (err) { alert("❌ Gagal simpan perubahan"); }
-  };
-
-  const saveSchedulesToFirebase = async () => {
-    try {
-      const { doc, setDoc, deleteDoc, collection, getDocs } = await import("firebase/firestore");
-      
-      // Clear existing schedules
-      const querySnapshot = await getDocs(collection(db, "schedules"));
-      await Promise.all(querySnapshot.docs.map(d => deleteDoc(d.ref)));
-      
-      // Save new schedules
-      await Promise.all(
-        schedules.map(schedule => 
-          setDoc(doc(db, "schedules", schedule.id), schedule)
-        )
-      );
-      
-      alert("✅ Rundown berhasil disimpan!");
-    } catch (err) {
-      console.error(err);
-      alert("❌ Gagal simpan rundown");
-    }
   };
 
   // --- CRUD HELPERS (Places & Outfits) ---
@@ -963,17 +971,18 @@ export function Admin() {
                 <div style={{ 
                   marginTop: 20, 
                   paddingTop: 20, 
-                  borderTop: '1px solid #334155',
-                  display: 'flex',
-                  gap: 12
+                  borderTop: '1px solid #334155'
                 }}>
-                  <button 
-                    className="btn btn-success" 
-                    onClick={saveSchedulesToFirebase}
-                    style={{ flex: 1, padding: '14px', fontSize: 15 }}
-                  >
-                    💾 Simpan Rundown ke Database
-                  </button>
+                  <div style={{ 
+                    padding: 12, 
+                    background: '#1e3a8a', 
+                    borderRadius: 8,
+                    fontSize: 13,
+                    color: '#bfdbfe',
+                    marginBottom: 12
+                  }}>
+                    💡 <strong>Info:</strong> Klik tombol "<strong>PUBLISH CHANGES</strong>" di pojok kanan atas untuk menyimpan semua perubahan (termasuk rundown) ke database.
+                  </div>
                 </div>
               )}
 

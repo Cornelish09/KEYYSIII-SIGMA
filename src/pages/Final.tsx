@@ -1,11 +1,21 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import html2canvas from "html2canvas"; 
+import { db } from "../firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 import type { AppState, ContentConfig, Outfit } from "../lib/types";
 import { saveState } from "../lib/storage"; 
 
 // Tipe data itinerary
 type Itinerary = { dinner: string | null; snack: string | null; dessert: string | null; };
+
+// Tipe data rundown
+type RundownItem = {
+  time: string;
+  label: string;
+  desc: string;
+  type: string;
+};
 
 export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
   const navigate = useNavigate();
@@ -19,9 +29,40 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
   const receiptRef = useRef<HTMLDivElement>(null); 
   const [showResetModal, setShowResetModal] = useState(false);
 
-  // --- STATE BARU: TANGGAL RESERVASI ---
-  // Default ke hari ini (format YYYY-MM-DD untuk input date)
+  // State untuk rundown (realtime dari Firebase)
+  const [rundownData, setRundownData] = useState<RundownItem[]>([]);
+
+  // Default tanggal reservasi
   const [reservationDate, setReservationDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // --- REALTIME SYNC RUNDOWN DARI FIREBASE ---
+  useEffect(() => {
+    const docRef = doc(db, "configs", "main_config");
+    
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.rundown && Array.isArray(data.rundown)) {
+          setRundownData(data.rundown);
+          console.log("📅 Rundown berhasil di-sync dari Firebase:", data.rundown);
+        } else {
+          // Fallback ke default rundown jika belum ada di Firebase
+          setRundownData([
+            { time: "16:30-17:30", label: "PICK UP", desc: "yoshyy jemput keysii", type: "static" },
+            { time: "17:00-18:15", label: "DINNER", desc: "", type: "dinner" },
+            { time: "18:15-18:30", label: "PRAYER", desc: "sholat maghrib", type: "static" },
+            { time: "18:30-19:00", label: "SNACK", desc: "", type: "snack" },
+            { time: "19:45-20:15", label: "DESSERT", desc: "", type: "dessert" },
+            { time: "22:00-22:30", label: "DROP OFF", desc: "anterin keyy pulang", type: "static" }
+          ]);
+        }
+      }
+    }, (error) => {
+      console.error("Firebase Rundown Sync Error:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // --- 1. LOAD DATA ---
   useEffect(() => {
@@ -76,21 +117,29 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
     setIsCapturing(false);
   };
 
-  // Ambil rundown dari config (Admin), kalau kosong baru pakai default
-  const baseRundown = cfg.rundown && cfg.rundown.length > 0 
-    ? cfg.rundown 
-    : [
-        { time: "16:30 - 17:30", label: "PICK UP", desc: `${cfg.couple.yourName} jemput ${cfg.couple.herName}`, type: "static" },
-        { time: "18:15 - 19:30", label: "DINNER", desc: "", type: "dinner" },
-        { time: "19:30 - 19:45", label: "SNACK", desc: "", type: "snack" },
-        { time: "20:30 - 21:00", label: "DESSERT", desc: "", type: "dessert" },
-        { time: "22:00 - 22:30", label: "DROP OFF", desc: `Nganter ${cfg.couple.herName} pulang`, type: "static" }
-      ];
-
-  const rundown = baseRundown.map((item: any) => {
-    if (item.type === 'dinner') return { ...item, desc: getPlaceName(plan?.dinner, item.desc || "Belum pilih tempat"), type: 'dynamic' };
-    if (item.type === 'snack') return { ...item, desc: getPlaceName(plan?.snack, item.desc || "Belum pilih snack"), type: 'dynamic' };
-    if (item.type === 'dessert') return { ...item, desc: getPlaceName(plan?.dessert, item.desc || "Belum pilih dessert"), type: 'dynamic' };
+  // --- PROSES RUNDOWN: Ganti dynamic content dengan pilihan user ---
+  const rundown = rundownData.map((item: RundownItem) => {
+    if (item.type === 'dinner') {
+      return { 
+        ...item, 
+        desc: getPlaceName(plan?.dinner || null, item.desc || "Belum pilih tempat"), 
+        type: 'dynamic' 
+      };
+    }
+    if (item.type === 'snack') {
+      return { 
+        ...item, 
+        desc: getPlaceName(plan?.snack || null, item.desc || "Belum pilih snack"), 
+        type: 'dynamic' 
+      };
+    }
+    if (item.type === 'dessert') {
+      return { 
+        ...item, 
+        desc: getPlaceName(plan?.dessert || null, item.desc || "Belum pilih dessert"), 
+        type: 'dynamic' 
+      };
+    }
     return item;
   });
 
@@ -153,102 +202,80 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
         .custom-date-input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.5; cursor: pointer; }
 
         /* TIMELINE */
-        .t-row { display: grid; grid-template-columns: 110px 1fr; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.2s; }
-        .t-row:hover { background: rgba(255,255,255,0.02); }
-        .t-time { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 15px; color: #94a3b8; letter-spacing: 0.5px; }
-        .t-label { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 2px; text-transform: uppercase; }
-        .t-desc { font-size: 13px; color: #64748b; line-height: 1.4; }
-        .dynamic-text { color: #c4b5fd; font-weight: 500; } 
+        .timeline { flex: 1; margin-bottom: 20px; overflow-y: auto; }
+        .t-row { display: flex; gap: 15px; margin-bottom: 18px; }
+        .t-time { width: 90px; flex-shrink: 0; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 13px; color: #7c3aed; text-transform: uppercase; padding-top: 2px; }
+        .t-label { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 16px; color: #fff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .t-desc { color: #94a3b8; font-size: 13px; line-height: 1.4; }
+        .t-desc.dynamic-text { color: #c4b5fd; font-weight: 600; }
 
-        .action-row { margin-top: 20px; display: flex; gap: 15px; flex-shrink: 0; }
-        .btn-act { flex: 1; padding: 14px; border-radius: 8px; border: none; cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; transition: all 0.2s; }
-        .btn-primary { background: #fff; color: #020617; }
-        .btn-primary:hover { background: #e2e8f0; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,255,255,0.2); }
-        .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #94a3b8; }
-        .btn-outline:hover { border-color: #fff; color: #fff; }
+        /* ACTION ROW */
+        .action-row { display: flex; gap: 12px; flex-shrink: 0; }
+        .btn-act { flex: 1; padding: 12px 20px; border: none; border-radius: 10px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; text-transform: uppercase; cursor: pointer; transition: all 0.3s; letter-spacing: 1px; }
+        .btn-outline { background: transparent; border: 1px solid rgba(124, 58, 237, 0.5); color: #7c3aed; }
+        .btn-outline:hover { background: rgba(124, 58, 237, 0.1); }
+        .btn-primary { background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%); color: #fff; box-shadow: 0 8px 20px rgba(124, 58, 237, 0.3); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(124, 58, 237, 0.4); }
 
-        /* MODALS */
-        .popup-modal { position: fixed; inset: 0; z-index: 200; background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.3s ease; }
-        .popup-card { background: #0f172a; border: 1px solid #7c3aed; padding: 30px; width: 90%; max-width: 350px; border-radius: 20px; text-align: center; box-shadow: 0 0 30px rgba(124, 58, 237, 0.3); animation: popBounce 0.4s forwards; }
-        @keyframes popBounce { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .popup-actions { display: flex; gap: 10px; margin-top: 20px; }
-        .btn-pop { flex: 1; padding: 12px; border-radius: 12px; border: none; cursor: pointer; font-weight: bold; }
-        .btn-cancel { background: transparent; border: 1px solid #334155; color: #94a3b8; }
-        .btn-confirm { background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); color: #fff; }
+        /* MODAL RESET */
+        .popup-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 999; backdrop-filter: blur(5px); }
+        .popup-card { background: #0f172a; border: 1px solid #7c3aed; border-radius: 16px; padding: 30px; text-align: center; max-width: 400px; box-shadow: 0 20px 50px rgba(124, 58, 237, 0.3); }
+        .popup-actions { display: flex; gap: 12px; margin-top: 20px; }
+        .btn-pop { flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; text-transform: uppercase; font-size: 13px; }
+        .btn-cancel { background: #334155; color: #fff; }
+        .btn-confirm { background: #7c3aed; color: #fff; }
 
-        /* RECEIPT OVERLAY */
-        .receipt-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; perspective: 1500px; animation: fadeIn 0.3s ease; }
-        .receipt-paper { width: 380px; background: #fff; color: #000; padding: 30px 25px; font-family: 'Space Mono', monospace; box-shadow: 0 0 50px rgba(0,0,0,0.5); transform-origin: top center; animation: printOut 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; position: relative; }
-        .receipt-paper::after { content: ''; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px; background: radial-gradient(circle, transparent 6px, #fff 7px); background-size: 15px 15px; background-position: -8px 0; }
-        @keyframes printOut { 0% { transform: translateY(-500px) rotateX(20deg); opacity: 0; } 100% { transform: translateY(0) rotateX(0deg); opacity: 1; } }
-        
-        .rc-close-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; color: #000; cursor: pointer; padding: 5px; line-height: 1; z-index:10; }
-        .btn-close-overlay { position: absolute; top: 20px; right: 20px; background: transparent; border: 1px solid #fff; color: #fff; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
-        .btn-close-overlay:hover { background: #fff; color: #000; }
+        /* RECEIPT MODAL */
+        .receipt-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(10px); }
+        .btn-close-overlay { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 12px 18px; border-radius: 50%; cursor: pointer; font-size: 18px; font-weight: bold; transition: 0.3s; z-index: 1001; }
+        .btn-close-overlay:hover { background: rgba(255,255,255,0.2); transform: rotate(90deg); }
 
-        /* RECEIPT CONTENT */
-        .rc-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 15px; margin-bottom: 15px; }
-        .rc-title { font-weight: bold; font-size: 20px; margin-bottom: 5px; }
-        .rc-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #444; }
-        
-        /* NEW: RECEIPT INFO ROW (ISSUED & RESERVATION) */
-        .rc-info-row { display: flex; justify-content: space-between; margin-top: 10px; border-top: 1px solid #eee; padding-top: 5px; }
-        .rc-info-item { font-size: 9px; display: flex; flex-direction: column; text-align: left; }
-        .rc-info-item.right { text-align: right; }
-        .rc-info-label { color: #666; font-size: 8px; }
-        .rc-info-val { font-weight: bold; text-transform: uppercase; }
-
-        .rc-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; line-height: 1.4; }
-        .rc-time { font-weight: bold; min-width: 85px; }
-        .rc-desc { text-align: right; max-width: 200px; }
-        .rc-total { border-top: 2px dashed #000; margin-top: 20px; padding-top: 15px; display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; }
-        .rc-footer { margin-top: 30px; text-align: center; }
-        .barcode-fake { font-size: 28px; letter-spacing: 5px; transform: scaleY(0.7); margin-bottom: 5px; }
-        .rc-note { font-size: 10px; color: #444; font-style: italic; margin-top: 10px; }
-
-        @media (max-width: 900px) {
-          .glass-dashboard { grid-template-columns: 1fr; height: 100vh; border-radius: 0; border: none; }
-          .visual-col { height: 200px; flex-shrink: 0; }
-          .page-title { font-size: 28px; }
-          .t-row { grid-template-columns: 90px 1fr; }
-        }
+        /* RECEIPT PAPER */
+        .receipt-paper { background: #fff; color: #000; width: 320px; padding: 20px; border-radius: 8px; font-family: 'Space Mono', monospace; position: relative; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
+        .rc-close-btn { position: absolute; top: 10px; right: 10px; background: transparent; border: 1px solid #000; color: #000; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; }
+        .rc-title { font-weight: 900; margin-bottom: 2px; }
+        .rc-sub { font-size: 9px; color: #666; }
+        .rc-info-row { border-top: 1px solid #000; padding-top: 8px; margin-top: 8px; }
+        .rc-info-item { flex: 1; }
+        .rc-info-label { display: block; font-size: 7px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rc-info-val { display: block; font-weight: bold; font-size: 10px; }
+        .rc-body { margin-top: 10px; }
+        .rc-total { border-top: 1px solid #000; padding-top: 8px; margin-top: 8px; }
+        .rc-footer { margin-top: 10px; }
+        .rc-note { font-style: italic; font-size: 9px; color: #666; }
       `}</style>
 
-      {/* DASHBOARD */}
       <div className="glass-dashboard">
+        {/* LEFT: OUTFIT VISUAL */}
         <div className="visual-col">
-          {outfit && outfit.image ? (
-            <img src={outfit.image} className="outfit-img" alt="Outfit" />
+          {outfit?.image ? (
+            <img src={outfit.image} alt={outfit.name} className="outfit-img" />
           ) : (
-            <div style={{width:'100%', height:'100%', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', color:'#334155'}}>NO IMAGE</div>
+            <div style={{width:'100%', height:'100%', background:'#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#444', fontSize:14}}>
+              No Outfit Selected
+            </div>
           )}
           <div className="overlay-info">
-            <div className="badge">Attire Code</div>
-            <div className="outfit-name">{outfit ? (outfit.name || outfit.title || "No Name") : "No Selection"}</div>
-            <div className="outfit-style">{outfit?.style || "Style"} Aesthetic</div>
+            <div className="badge">ATTIRE CODE</div>
+            <div className="outfit-name">{outfit?.name || "No Outfit"}</div>
+            <div className="outfit-style">{outfit?.style || "Casual"}</div>
           </div>
         </div>
 
+        {/* RIGHT: RUNDOWN DATA */}
         <div className="data-col">
           <div className="header-row">
             <div>
-              <div className="page-sub">The Master Plan</div>
-              <div className="page-title">Date Itinerary</div>
+              <div className="page-sub">yoshyy x keyysi</div>
+              <div className="page-title">Date Plan</div>
             </div>
-            
-            {/* INPUT TANGGAL (POJOK KANAN ATAS) */}
             <div className="date-input-group">
               <div className="date-label">Reservation Date</div>
               <input 
                 type="date" 
                 className="custom-date-input"
                 value={reservationDate}
-                onChange={(e) => {
-                  const newDate = e.target.value;
-                  setReservationDate(newDate);
-                  // Simpan ke storage biar permanen
-                  saveState({ ...state, reservationDate: newDate });
-                }}
+                onChange={(e) => setReservationDate(e.target.value)}
               />
             </div>
           </div>
@@ -272,7 +299,6 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               Reset Plan
             </button>
             
-            {/* TOMBOL BARU 👇 */}
             <button 
               className="btn-act" 
               style={{ background: 'linear-gradient(45deg, #7c3aed, #db2777)', color: '#fff', border: 'none' }}
@@ -348,7 +374,6 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
               ))}
             </div>
 
-            {/* SATU-SATUNYA GARIS PUTUS-PUTUS BAWAH */}
             <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
 
             <div className="rc-total" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', padding: '5px 0', border: 'none', marginTop: 0 }}>
