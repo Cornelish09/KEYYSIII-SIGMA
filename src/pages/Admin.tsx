@@ -359,11 +359,35 @@ export function Admin() {
 
         {/* --- FITUR LAMA: GALLERY --- */}
         {activeTab === 'gallery' && (
-          <div><h2>Gallery Lama</h2><div className="grid-cards">{oldUserPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%'}}/><a href={p.url} target="_blank" style={{color:'#3b82f6'}}>Open</a></div>))}</div>
+        {activeTab === 'gallery' && (
+          <div>
+            <h2>Gallery Lama</h2>
+            <div className="grid-cards">
+              {oldUserPhotos.map(p => (
+                <div key={p.id} className="card">
+                  <img src={p.url} style={{width:'100%'}}/>
+                  <a href={p.url} target="_blank" rel="noopener noreferrer" style={{color:'#3b82f6'}}>Open</a>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {activeTab === 'tools' && (
-          <div><h2>Tools</h2><button className="btn btn-danger" onClick={()=>{if(confirm("Reset?")){resetConfig();window.location.reload();}}}>Reset Config</button></div>
+          <div>
+            <h2>Tools</h2>
+            <button 
+              className="btn btn-danger" 
+              onClick={() => {
+                if(confirm("Reset?")) {
+                  resetConfig();
+                  window.location.reload();
+                }
+              }}
+            >
+              Reset Config
+            </button>
+          </div>
         )}
       </div>
     </div>
