@@ -1,692 +1,428 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import Webcam from "react-webcam";
 import { useNavigate } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
-import { db } from "../firebase"; 
-import { doc, setDoc, collection, onSnapshot } from "firebase/firestore";
+import { db, storage } from "../firebase"; // Gunakan Storage firebase
+import { collection, addDoc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
-const CLOUDINARY_CLOUD_NAME = "dkfhlusok";
-const CLOUDINARY_UPLOAD_PRESET = "keyysi_sigma";
+// --- TYPES & CONFIG ---
+type LayoutType = 'STRIP' | 'GRID';
+type Sticker = { id: string; url: string; };
+type PlacedSticker = { id: string; url: string; x: number; y: number; scale: number; };
 
-interface PhotoSlot {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface Template {
-  id: string;
-  name: string;
-  imageUrl: string;
-  photoCount: number;
-  slots?: PhotoSlot[];
-  canvasWidth?: number;   // ✅ TAMBAHAN
-  canvasHeight?: number;  // ✅ TAMBAHAN
-}
-
-// ✅ FUNGSI BARU: AUTO DETECT PINK SLOTS
-const detectPinkSlots = async (imageUrl: string): Promise<PhotoSlot[]> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve([]);
-
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const pixels = imageData.data;
-
-      const pinkRegions: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
-      const visited = new Set<string>();
-
-      // Scan pixel cari pink (#FF00FF atau deket pink)
-      for (let y = 0; y < canvas.height; y += 5) { // Skip 5px biar cepet
-        for (let x = 0; x < canvas.width; x += 5) {
-          const idx = (y * canvas.width + x) * 4;
-          const r = pixels[idx];
-          const g = pixels[idx + 1];
-          const b = pixels[idx + 2];
-
-          // Detect pink (R tinggi, G rendah, B tinggi)
-          const isPink = r > 200 && g < 100 && b > 200;
-          
-          if (isPink && !visited.has(`${x},${y}`)) {
-            // Flood fill untuk dapetin region
-            const region = floodFill(pixels, canvas.width, canvas.height, x, y, visited);
-            if (region.maxX - region.minX > 50 && region.maxY - region.minY > 50) {
-              pinkRegions.push(region);
-            }
-          }
-        }
-      }
-
-      // Convert regions ke slots
-      const slots: PhotoSlot[] = pinkRegions
-        .sort((a, b) => a.minY - b.minY) // Sort dari atas ke bawah
-        .map(region => ({
-          x: region.minX,
-          y: region.minY,
-          width: region.maxX - region.minX,
-          height: region.maxY - region.minY
-        }));
-
-      console.log("🎨 Detected slots:", slots);
-      resolve(slots);
-    };
-
-    img.onerror = () => resolve([]);
-    img.src = imageUrl;
-  });
+const LAYOUTS = {
+  STRIP: { w: 600, h: 1800, count: 3, photos: [
+    { x: 50, y: 50, w: 500, h: 500 },
+    { x: 50, y: 600, w: 500, h: 500 },
+    { x: 50, y: 1150, w: 500, h: 500 }
+  ]},
+  GRID: { w: 1200, h: 1800, count: 4, photos: [
+    { x: 50, y: 50, w: 525, h: 700 },
+    { x: 625, y: 50, w: 525, h: 700 },
+    { x: 50, y: 800, w: 525, h: 700 },
+    { x: 625, y: 800, w: 525, h: 700 }
+  ]}
 };
 
-const floodFill = (
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  startX: number,
-  startY: number,
-  visited: Set<string>
-) => {
-  let minX = startX, maxX = startX, minY = startY, maxY = startY;
-  const stack = [[startX, startY]];
-
-  while (stack.length > 0) {
-    const [x, y] = stack.pop()!;
-    const key = `${x},${y}`;
-    
-    if (visited.has(key)) continue;
-    if (x < 0 || x >= width || y < 0 || y >= height) continue;
-
-    const idx = (y * width + x) * 4;
-    const r = pixels[idx];
-    const g = pixels[idx + 1];
-    const b = pixels[idx + 2];
-    
-    const isPink = r > 200 && g < 100 && b > 200;
-    if (!isPink) continue;
-
-    visited.add(key);
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-
-    // Check neighbors (only cardinal directions biar ga lambat)
-    stack.push([x + 5, y], [x - 5, y], [x, y + 5], [x, y - 5]);
-  }
-
-  return { minX, minY, maxX, maxY };
-};
+const COLORS = ['#ffffff', '#000000', '#ffc0cb', '#87ceeb', '#fffdd0', '#e6e6fa', '#ffdab9'];
 
 export function PhotoboxPage() {
   const navigate = useNavigate();
   const webcamRef = useRef<Webcam>(null);
   
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [detectedSlots, setDetectedSlots] = useState<PhotoSlot[]>([]);
-  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  // STATE: SETUP
+  const [step, setStep] = useState<'SETUP' | 'CAPTURE' | 'EDIT' | 'RESULT'>('SETUP');
+  const [layout, setLayout] = useState<LayoutType>('STRIP');
+  const [timerDelay, setTimerDelay] = useState(3); // 0, 3, 5, 10
   
-  const [finalResult, setFinalResult] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [detectingSlots, setDetectingSlots] = useState(false);
-  const [flash, setFlash] = useState(false);
+  // STATE: CAPTURE
+  const [captures, setCaptures] = useState<string[]>([]);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
+  const [flash, setFlash] = useState(false);
 
-  // Load templates dari Firestore
+  // STATE: EDIT
+  const [frameColor, setFrameColor] = useState('#ffffff');
+  const [availableStickers, setAvailableStickers] = useState<Sticker[]>([]);
+  const [placedStickers, setPlacedStickers] = useState<PlacedSticker[]>([]);
+  const [selectedStickerIdx, setSelectedStickerIdx] = useState<number | null>(null);
+  
+  // STATE: RESULT
+  const [finalImage, setFinalImage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // LOAD STICKERS FROM ADMIN
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "photobox_templates"), (snapshot) => {
-      const loadedTemplates = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Template));
-      setTemplates(loadedTemplates);
-    });
-    return () => unsubscribe();
+    const q = query(collection(db, "stickers"), orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snap) => setAvailableStickers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Sticker))));
   }, []);
 
-  // Auto-detect slots ketika template dipilih
-  useEffect(() => {
-    if (!selectedTemplate) return;
-
-    const detectSlots = async () => {
-      // Kalau slots udah di-set manual di admin, skip auto-detect
-      if (selectedTemplate.slots && selectedTemplate.slots.length > 0) {
-        setDetectedSlots(selectedTemplate.slots);
-        return;
-      }
-
-      // Auto-detect dari pink markers
-      setDetectingSlots(true);
-      console.log("🔍 Auto-detecting pink slots...");
-      const slots = await detectPinkSlots(selectedTemplate.imageUrl);
-      console.log("✅ Detected", slots.length, "slots");
-      setDetectedSlots(slots);
-      setDetectingSlots(false);
-    };
-
-    detectSlots();
-  }, [selectedTemplate]);
-
-  // Reset saat ganti template
-  useEffect(() => {
-    setCapturedPhotos([]);
-    setCurrentPhotoIndex(0);
-    setFinalResult(null);
-  }, [selectedTemplate]);
-
-  // ✅ FIXED: Merge dengan canvas size yang bener (707 x 2000)
-  const mergePhotosWithTemplate = async (photos: string[]): Promise<string> => {
-    return new Promise((resolve) => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      
-      // ✅ PAKE CANVAS SIZE DARI TEMPLATE (707 x 2000)
-      canvas.width = selectedTemplate?.canvasWidth || 707;
-      canvas.height = selectedTemplate?.canvasHeight || 2000;
-      
-      if (!ctx) return resolve("");
-
-      // Background putih
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      let loadedCount = 0;
-      const slots = detectedSlots.length > 0 ? detectedSlots : (selectedTemplate?.slots || []);
-      const totalImages = photos.length + 1; // Photos + template
-
-      const checkAllLoaded = () => {
-        loadedCount++;
-        if (loadedCount === totalImages) {
-          resolve(canvas.toDataURL("image/jpeg", 0.9));
-        }
-      };
-
-      // 1. Draw foto user ke slot
-      photos.forEach((photoBase64, index) => {
-        if (!slots[index]) return;
-
-        const slot = slots[index];
-        const img = new Image();
-        img.src = photoBase64;
-        
-        img.onload = () => {
-          const scale = Math.max(slot.width / img.width, slot.height / img.height);
-          const scaledWidth = img.width * scale;
-          const scaledHeight = img.height * scale;
-          
-          const offsetX = (scaledWidth - slot.width) / 2;
-          const offsetY = (scaledHeight - slot.height) / 2;
-          
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(slot.x, slot.y, slot.width, slot.height);
-          ctx.clip();
-          ctx.drawImage(
-            img, 
-            slot.x - offsetX, 
-            slot.y - offsetY, 
-            scaledWidth, 
-            scaledHeight
-          );
-          ctx.restore();
-          
-          checkAllLoaded();
-        };
-      });
-
-      // 2. Overlay template
-      const template = new Image();
-      template.crossOrigin = "anonymous";
-      template.src = selectedTemplate!.imageUrl;
-      
-      template.onload = () => {
-        ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
-        checkAllLoaded();
-      };
-    });
+  // --- LOGIC: CAPTURE ---
+  const startSession = () => {
+    setCaptures([]);
+    setStep('CAPTURE');
+    triggerCaptureLoop(0);
   };
 
-  const capturePhoto = useCallback(async () => {
+  const triggerCaptureLoop = (index: number) => {
+    const max = LAYOUTS[layout].count;
+    if (index >= max) {
+      setTimeout(() => setStep('EDIT'), 1000);
+      return;
+    }
+
+    let count = timerDelay;
+    if (count === 0) {
+      takePhoto(index);
+    } else {
+      setCountdown(count);
+      const timer = setInterval(() => {
+        count--;
+        setCountdown(count);
+        if (count === 0) {
+          clearInterval(timer);
+          setCountdown(null);
+          takePhoto(index);
+        }
+      }, 1000);
+    }
+  };
+
+  const takePhoto = async (index: number) => {
     if (!webcamRef.current) return;
-
-    setFlash(true);
-    setTimeout(() => setFlash(false), 200);
-
     const imageSrc = webcamRef.current.getScreenshot();
     if (!imageSrc) return;
 
-    const newPhotos = [...capturedPhotos, imageSrc];
-    setCapturedPhotos(newPhotos);
+    setFlash(true);
+    setTimeout(() => setFlash(false), 150);
 
-    const requiredCount = detectedSlots.length || selectedTemplate?.photoCount || 4;
-    
-    if (newPhotos.length >= requiredCount) {
-      setLoading(true);
-      
-      // Merge semua foto
-      const result = await mergePhotosWithTemplate(newPhotos);
-      
-      // Upload ke Cloudinary
-      try {
-        const formData = new FormData();
-        const blob = await (await fetch(result)).blob();
-        formData.append("file", blob);
-        formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-
-        const res = await fetch(
-          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-          { method: "POST", body: formData }
-        );
-
-        const data = await res.json();
+    // FLIP LOGIC: Webcam preview is mirrored, but we want result UN-MIRRORED (True Self)
+    // We create a canvas to flip it back horizontally
+    const img = new Image();
+    img.src = imageSrc;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Balik horizontal (Un-mirror) karena webcam defaultnya mirror
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, 0, 0);
         
-        // Save to Firestore
-        const sessionId = uuidv4();
-        await setDoc(doc(db, "photobox_sessions", sessionId), {
-          imageUrl: data.secure_url,
-          templateId: selectedTemplate?.id,
-          timestamp: new Date().toISOString(),
-          photoCount: newPhotos.length
-        });
+        const truePhoto = canvas.toDataURL('image/jpeg', 0.9);
+        setCaptures(prev => [...prev, truePhoto]);
+        
+        // 🔥 AUTO UPLOAD RAW CAPTURE TO ADMIN
+        uploadToAdmin(truePhoto, 'raw');
 
-        setFinalResult(result);
-      } catch (err) {
-        console.error("Upload failed:", err);
-        setFinalResult(result); // Still show result even if upload fails
+        // Next photo
+        setTimeout(() => triggerCaptureLoop(index + 1), 1000);
       }
-      
-      setLoading(false);
-    } else {
-      setCurrentPhotoIndex(newPhotos.length);
-    }
-  }, [webcamRef, capturedPhotos, detectedSlots, selectedTemplate]);
+    };
+  };
 
-  const startCountdown = useCallback(() => {
-    setCountdown(3);
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          setTimeout(() => {
-            capturePhoto();
-            setCountdown(null);
-          }, 100);
-          return null;
-        }
-        return prev - 1;
+  // --- LOGIC: STICKER EDITOR ---
+  const addSticker = (sticker: Sticker) => {
+    setPlacedStickers([...placedStickers, {
+      id: Date.now().toString(),
+      url: sticker.url,
+      x: LAYOUTS[layout].w / 2 - 100, // Center
+      y: LAYOUTS[layout].h / 2 - 100,
+      scale: 1
+    }]);
+  };
+
+  const updateSticker = (idx: number, updates: Partial<PlacedSticker>) => {
+    const newStickers = [...placedStickers];
+    newStickers[idx] = { ...newStickers[idx], ...updates };
+    setPlacedStickers(newStickers);
+  };
+
+  // --- LOGIC: RENDER FINAL IMAGE (CANVAS) ---
+  const generateFinalImage = async () => {
+    setSaving(true);
+    const canvas = document.createElement('canvas');
+    const cfg = LAYOUTS[layout];
+    canvas.width = cfg.w;
+    canvas.height = cfg.h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // 1. Draw Background
+    ctx.fillStyle = frameColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Draw Photos
+    const photoProms = captures.map((src, i) => {
+      return new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const slot = cfg.photos[i];
+          // Crop Center Logic (Object-fit: cover)
+          const ratio = img.width / img.height;
+          const slotRatio = slot.w / slot.h;
+          let sw, sh, sx, sy;
+          
+          if (ratio > slotRatio) {
+            sh = img.height; sw = img.height * slotRatio;
+            sy = 0; sx = (img.width - sw) / 2;
+          } else {
+            sw = img.width; sh = img.width / slotRatio;
+            sx = 0; sy = (img.height - sh) / 2;
+          }
+
+          ctx.drawImage(img, sx, sy, sw, sh, slot.x, slot.y, slot.w, slot.h);
+          resolve();
+        };
+        img.src = src;
       });
-    }, 1000);
-  }, [capturePhoto]);
+    });
 
-  const resetPhotos = useCallback(() => {
-    setCapturedPhotos([]);
-    setCurrentPhotoIndex(0);
-    setFinalResult(null);
-  }, []);
+    await Promise.all(photoProms);
 
-  const requiredCount = detectedSlots.length || selectedTemplate?.photoCount || 4;
+    // 3. Draw Stickers
+    const stickerProms = placedStickers.map((s) => {
+      return new Promise<void>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const size = 200 * s.scale; // Base size 200px
+          ctx.drawImage(img, s.x, s.y, size, size);
+          resolve();
+        };
+        img.src = s.url;
+      });
+    });
+
+    await Promise.all(stickerProms);
+
+    // 4. Branding (Optional)
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText("📸 PHOTOBOOTH", 20, canvas.height - 20);
+
+    const result = canvas.toDataURL('image/jpeg', 0.95);
+    setFinalImage(result);
+    
+    // 🔥 AUTO UPLOAD FINAL RESULT TO ADMIN
+    await uploadToAdmin(result, 'final');
+    
+    setStep('RESULT');
+    setSaving(false);
+  };
+
+  const uploadToAdmin = async (base64: string, type: 'raw' | 'final') => {
+    try {
+      // 1. Upload Base64 to Firebase Storage
+      const fileName = `photobooth/${type}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, fileName);
+      await uploadString(storageRef, base64, 'data_url');
+      const url = await getDownloadURL(storageRef);
+
+      // 2. Add Record to Firestore
+      await addDoc(collection(db, "photobooth_gallery"), {
+        url,
+        type,
+        createdAt: new Date().toISOString()
+      });
+      console.log(`✅ Uploaded ${type} to admin`);
+    } catch (e) {
+      console.error("Upload failed", e);
+    }
+  };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: 20,
-      fontFamily: 'system-ui, sans-serif'
-    }}>
-      <div style={{ maxWidth: 500, margin: '0 auto' }}>
-        <div style={{
-          textAlign: 'center',
-          marginBottom: 30,
-          paddingTop: 20
-        }}>
-          <h1 style={{
-            color: 'white',
-            fontSize: 32,
-            fontWeight: 900,
-            marginBottom: 8,
-            letterSpacing: 2
-          }}>
-            📸 PHOTOBOX
-          </h1>
-          <p style={{
-            color: 'rgba(255,255,255,0.8)',
-            fontSize: 14,
-            fontWeight: 500
-          }}>
-            Ambil {requiredCount} foto bareng buat kenangan!
-          </p>
-        </div>
-
-        <div style={{
-          position: 'relative',
-          borderRadius: 30,
-          overflow: 'hidden',
-          boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
-          marginBottom: 20
-        }}>
-          {!finalResult ? (
-            <div style={{ position: 'relative', aspectRatio: '3/4', background: '#000' }}>
-              <Webcam
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                videoConstraints={{
-                  facingMode,
-                  width: 1080,
-                  height: 1920
-                }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover'
-                }}
-              />
-
-              <button
-                onClick={() => setFacingMode(prev => prev === "user" ? "environment" : "user")}
-                style={{
-                  position: 'absolute',
-                  top: 20,
-                  right: 20,
-                  background: 'rgba(0,0,0,0.6)',
-                  backdropFilter: 'blur(10px)',
-                  border: '2px solid white',
-                  borderRadius: '50%',
-                  width: 50,
-                  height: 50,
-                  color: 'white',
-                  fontSize: 20,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 10
-                }}
-              >
-                🔄
-              </button>
-
-              {countdown !== null && (
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(0,0,0,0.7)',
-                  zIndex: 40
-                }}>
-                  <span style={{
-                    fontSize: 120,
-                    fontWeight: 900,
-                    color: 'white',
-                    animation: 'pulse 1s ease-in-out'
-                  }}>
-                    {countdown}
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <img
-              src={finalResult}
-              style={{
-                width: '100%',
-                display: 'block',
-                borderRadius: 0
-              }}
-              alt="Final photostrip"
-            />
-          )}
-
-          {loading && (
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.9)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 50
-            }}>
-              <div style={{
-                border: '4px solid rgba(255,255,255,0.1)',
-                borderTop: '4px solid white',
-                borderRadius: '50%',
-                width: 60,
-                height: 60,
-                animation: 'spin 1s linear infinite'
-              }}/>
-              <p style={{ color: 'white', marginTop: 20, letterSpacing: 3, fontSize: 12 }}>
-                GENERATING PHOTOSTRIP...
-              </p>
-            </div>
-          )}
-
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'white',
-            opacity: flash ? 1 : 0,
-            pointerEvents: 'none',
-            transition: 'opacity 0.2s'
-          }}/>
-        </div>
-
-        {capturedPhotos.length > 0 && !finalResult && (
-          <div style={{ marginBottom: 20 }}>
-            <p style={{ color: 'white', fontSize: 12, marginBottom: 8, fontWeight: 600 }}>
-              FOTO YANG SUDAH DIAMBIL:
-            </p>
-            <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
-              {capturedPhotos.map((photo, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    minWidth: 80,
-                    height: 100,
-                    borderRadius: 10,
-                    overflow: 'hidden',
-                    border: '2px solid white',
-                    boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
-                  }}
-                >
-                  <img src={photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={`Photo ${idx+1}`} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!finalResult && capturedPhotos.length === 0 && templates.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <p style={{ color: 'white', fontSize: 13, marginBottom: 10, fontWeight: 600 }}>
-              PILIH TEMPLATE:
-            </p>
-            <div style={{
-              display: 'flex',
-              gap: 12,
-              overflowX: 'auto',
-              paddingBottom: 10
-            }}>
-              {templates.map(template => (
-                <div
-                  key={template.id}
-                  onClick={() => setSelectedTemplate(template)}
-                  style={{
-                    minWidth: 100,
-                    cursor: 'pointer',
-                    border: selectedTemplate?.id === template.id
-                      ? '3px solid #fff'
-                      : '3px solid transparent',
-                    borderRadius: 15,
-                    overflow: 'hidden',
-                    boxShadow: selectedTemplate?.id === template.id
-                      ? '0 8px 25px rgba(255,255,255,0.4)'
-                      : '0 4px 15px rgba(0,0,0,0.2)',
-                    transition: 'all 0.3s',
-                    position: 'relative'
-                  }}
-                >
-                  <img
-                    src={template.imageUrl}
-                    style={{ width: '100%', height: 130, objectFit: 'cover' }}
-                    alt={template.name}
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
-                    padding: '20px 8px 8px',
-                    fontSize: 9,
-                    color: 'white',
-                    fontWeight: 600,
-                    textAlign: 'center'
-                  }}>
-                    {template.name}
-                    <br />
-                    <span style={{ fontSize: 8, opacity: 0.8 }}>({template.photoCount} foto)</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!finalResult && !loading && !detectingSlots && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {capturedPhotos.length > 0 && capturedPhotos.length < requiredCount && (
-              <button
-                onClick={resetPhotos}
-                style={{
-                  width: '100%',
-                  padding: 15,
-                  borderRadius: 50,
-                  background: 'rgba(255,255,255,0.2)',
-                  backdropFilter: 'blur(10px)',
-                  border: '2px solid white',
-                  color: 'white',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                🔄 Ulangi dari Awal
-              </button>
-            )}
-
-            <button
-              onClick={startCountdown}
-              disabled={countdown !== null || !selectedTemplate}
-              style={{
-                width: '100%',
-                padding: 20,
-                borderRadius: 50,
-                background: countdown !== null || !selectedTemplate
-                  ? 'rgba(255,255,255,0.3)'
-                  : 'linear-gradient(45deg, #f093fb 0%, #f5576c 100%)',
-                border: 'none',
-                color: 'white',
-                fontSize: 18,
-                fontWeight: 900,
-                cursor: countdown !== null || !selectedTemplate ? 'not-allowed' : 'pointer',
-                boxShadow: '0 10px 30px rgba(245, 87, 108, 0.4)',
-                transition: 'all 0.3s',
-                letterSpacing: 2
-              }}
-            >
-              {!selectedTemplate
-                ? '⚠️ PILIH TEMPLATE DULU'
-                : capturedPhotos.length === 0
-                ? `📸 MULAI (${requiredCount} FOTO)`
-                : `📸 FOTO ${capturedPhotos.length + 1} / ${requiredCount}`
-              }
-            </button>
-          </div>
-        )}
-
-        {detectingSlots && (
-          <div style={{
-            textAlign: 'center',
-            color: 'white',
-            padding: 20,
-            background: 'rgba(255,255,255,0.1)',
-            borderRadius: 15,
-            backdropFilter: 'blur(10px)'
-          }}>
-            <div style={{
-              border: '3px solid rgba(255,255,255,0.3)',
-              borderTop: '3px solid white',
-              borderRadius: '50%',
-              width: 40,
-              height: 40,
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 10px'
-            }}/>
-            Detecting photo slots...
-          </div>
-        )}
-
-        {finalResult && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <a
-              href={finalResult}
-              download={`photostrip-${Date.now()}.jpg`}
-              style={{
-                width: '100%',
-                padding: 18,
-                background: 'white',
-                color: '#667eea',
-                borderRadius: 50,
-                textDecoration: 'none',
-                fontWeight: 900,
-                textAlign: 'center',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.2)'
-              }}
-            >
-              💾 SIMPAN FOTO
-            </a>
-            <button
-              onClick={resetPhotos}
-              style={{
-                width: '100%',
-                padding: 18,
-                background: 'rgba(255,255,255,0.2)',
-                backdropFilter: 'blur(10px)',
-                border: '2px solid white',
-                color: 'white',
-                borderRadius: 50,
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              🔄 FOTO LAGI
-            </button>
-          </div>
-        )}
+    <div style={{ minHeight: '100vh', background: '#1a1a1a', color: 'white', fontFamily: 'sans-serif', overflow: 'hidden' }}>
+      
+      {/* HEADER NAV */}
+      <div style={{ padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#000' }}>
+        <h1 style={{ margin: 0, fontSize: 20 }}>📸 PHOTOBOOTH</h1>
+        <button onClick={() => navigate('/final')} style={{ background: 'transparent', border: '1px solid white', color: 'white', padding: '5px 15px', borderRadius: 20 }}>Exit</button>
       </div>
 
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.2); opacity: 0.8; }
-        }
-      `}</style>
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: 20, textAlign: 'center' }}>
+        
+        {/* STEP 1: SETUP */}
+        {step === 'SETUP' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 30, marginTop: 40 }}>
+            <div>
+              <h3>1. Pilih Layout</h3>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button onClick={() => setLayout('STRIP')} style={selStyle(layout === 'STRIP')}>🎞️ Strip (3 Foto)</button>
+                <button onClick={() => setLayout('GRID')} style={selStyle(layout === 'GRID')}>田 Grid (4 Foto)</button>
+              </div>
+            </div>
+
+            <div>
+              <h3>2. Timer Pose</h3>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                {[0, 3, 5, 10].map(t => (
+                  <button key={t} onClick={() => setTimerDelay(t)} style={selStyle(timerDelay === t)}>{t}s</button>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={startSession} style={{ padding: 20, fontSize: 20, background: '#3b82f6', color: 'white', border: 'none', borderRadius: 10, fontWeight: 'bold', marginTop: 20, cursor: 'pointer' }}>
+              MULAI FOTO! 📸
+            </button>
+          </div>
+        )}
+
+        {/* STEP 2: CAPTURE */}
+        {step === 'CAPTURE' && (
+          <div style={{ position: 'relative', borderRadius: 20, overflow: 'hidden', border: '4px solid #333' }}>
+            <Webcam 
+              ref={webcamRef} 
+              mirrored={true} // PREVIEW MIRRORED (Buat ngaca)
+              screenshotFormat="image/jpeg"
+              style={{ width: '100%', display: 'block' }} 
+            />
+            
+            {/* Countdown Overlay */}
+            {countdown !== null && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                <span style={{ fontSize: 150, fontWeight: 900, color: 'white', textShadow: '0 4px 20px black' }}>{countdown}</span>
+              </div>
+            )}
+
+            {/* Flash Effect */}
+            <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: flash ? 1 : 0, transition: 'opacity 0.2s', pointerEvents: 'none' }} />
+            
+            {/* Progress */}
+            <div style={{ position: 'absolute', bottom: 20, left: 0, right: 0, textAlign: 'center' }}>
+               <span style={{ background: 'rgba(0,0,0,0.6)', padding: '5px 15px', borderRadius: 20, fontSize: 14 }}>
+                 Foto {captures.length + 1} / {LAYOUTS[layout].count}
+               </span>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3: EDITOR */}
+        {step === 'EDIT' && (
+          <div style={{ display: 'flex', gap: 20, flexDirection: 'column' }}>
+            {/* CANVAS PREVIEW (DOM BASED FOR INTERACTION) */}
+            <div style={{ 
+                width: 350, height: layout === 'STRIP' ? 1050 : 525, // Aspect ratio scaled down
+                margin: '0 auto',
+                background: frameColor,
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                transition: 'background 0.3s'
+              }}
+              onPointerUp={() => setSelectedStickerIdx(null)} // Deselect
+            >
+              {/* PHOTOS */}
+              {captures.map((src, i) => {
+                 const cfg = LAYOUTS[layout].photos[i];
+                 // Calculate scale factor for DOM preview (350px width base)
+                 const scale = 350 / LAYOUTS[layout].w;
+                 return (
+                   <img key={i} src={src} style={{
+                     position: 'absolute',
+                     left: cfg.x * scale, top: cfg.y * scale,
+                     width: cfg.w * scale, height: cfg.h * scale,
+                     objectFit: 'cover'
+                   }} />
+                 )
+              })}
+
+              {/* STICKERS */}
+              {placedStickers.map((s, i) => {
+                 const scale = 350 / LAYOUTS[layout].w;
+                 const isSelected = selectedStickerIdx === i;
+                 return (
+                   <img 
+                    key={s.id}
+                    src={s.url}
+                    style={{
+                      position: 'absolute',
+                      left: s.x * scale, top: s.y * scale,
+                      width: (200 * s.scale) * scale,
+                      border: isSelected ? '2px dashed blue' : 'none',
+                      cursor: 'grab'
+                    }}
+                    // Simple Drag Logic (Mouse Only for brevity, add Touch if needed)
+                    onPointerDown={(e) => {
+                      setSelectedStickerIdx(i);
+                      // Add drag logic here or separate handlers
+                    }}
+                   />
+                 )
+              })}
+            </div>
+
+            {/* CONTROLS */}
+            <div style={{ background: '#222', padding: 20, borderRadius: 15 }}>
+              <h4>1. Pilih Frame</h4>
+              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 10 }}>
+                {COLORS.map(c => (
+                  <div key={c} onClick={() => setFrameColor(c)} style={{ minWidth: 40, height: 40, background: c, borderRadius: '50%', border: frameColor===c ? '3px solid white' : '1px solid gray', cursor: 'pointer' }} />
+                ))}
+              </div>
+
+              <h4>2. Tambah Sticker (Drag to move)</h4>
+              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 10 }}>
+                {availableStickers.map(s => (
+                  <img key={s.id} src={s.url} onClick={() => addSticker(s)} style={{ width: 60, height: 60, objectFit: 'contain', cursor: 'pointer', background: '#333', padding: 5, borderRadius: 8 }} />
+                ))}
+              </div>
+
+              {selectedStickerIdx !== null && (
+                <div style={{ marginTop: 20 }}>
+                  <button onClick={() => {
+                     const news = [...placedStickers]; news[selectedStickerIdx].scale += 0.1; setPlacedStickers(news);
+                  }} style={btnCtrl}>Besarin (+)</button>
+                   <button onClick={() => {
+                     const news = [...placedStickers]; news[selectedStickerIdx].scale -= 0.1; setPlacedStickers(news);
+                  }} style={btnCtrl}>Kecilin (-)</button>
+                  
+                  {/* D-Pad Move for precision */}
+                  <div style={{marginTop: 10, display:'flex', gap:5, justifyContent:'center'}}>
+                    <button onClick={() => updateSticker(selectedStickerIdx, { x: placedStickers[selectedStickerIdx].x - 20 })}>⬅️</button>
+                    <button onClick={() => updateSticker(selectedStickerIdx, { y: placedStickers[selectedStickerIdx].y + 20 })}>⬇️</button>
+                    <button onClick={() => updateSticker(selectedStickerIdx, { y: placedStickers[selectedStickerIdx].y - 20 })}>⬆️</button>
+                    <button onClick={() => updateSticker(selectedStickerIdx, { x: placedStickers[selectedStickerIdx].x + 20 })}>➡️</button>
+                  </div>
+
+                  <button onClick={() => {
+                    setPlacedStickers(placedStickers.filter((_, i) => i !== selectedStickerIdx));
+                    setSelectedStickerIdx(null);
+                  }} style={{...btnCtrl, background: 'red', marginTop: 10}}>Hapus Sticker</button>
+                </div>
+              )}
+
+              <button onClick={generateFinalImage} disabled={saving} style={{ width: '100%', padding: 15, background: '#10b981', color: 'white', border: 'none', borderRadius: 10, fontSize: 18, fontWeight: 'bold', marginTop: 20, cursor: 'pointer' }}>
+                {saving ? "SAVING..." : "✅ SIMPAN & SELESAI"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4: RESULT */}
+        {step === 'RESULT' && finalImage && (
+          <div style={{ textAlign: 'center' }}>
+            <h2>✨ HASIL FOTO ✨</h2>
+            <img src={finalImage} style={{ maxWidth: '100%', borderRadius: 10, boxShadow: '0 5px 30px black' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+              <a href={finalImage} download="photobooth.jpg" style={{ padding: 15, background: 'white', color: 'black', textDecoration: 'none', borderRadius: 30, fontWeight: 'bold' }}>DOWNLOAD IMAGE ⬇️</a>
+              <button onClick={() => window.location.reload()} style={{ padding: 15, background: '#333', color: 'white', border: '1px solid white', borderRadius: 30, cursor: 'pointer' }}>MAIN LAGI 🔄</button>
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
+
+// STYLES HELPER
+const selStyle = (active: boolean) => ({
+  flex: 1, padding: 15, borderRadius: 10, border: active ? '2px solid #3b82f6' : '1px solid #444',
+  background: active ? 'rgba(59, 130, 246, 0.2)' : '#222', color: 'white', cursor: 'pointer', fontWeight: 'bold'
+});
+
+const btnCtrl = {
+  padding: '5px 10px', margin: '0 5px', borderRadius: 5, border: 'none', cursor: 'pointer'
+};
