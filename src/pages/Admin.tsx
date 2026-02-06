@@ -7,37 +7,46 @@ import { loadConfig, saveConfig, resetConfig } from "../lib/storage";
 import { logEvent } from "../lib/activity";
 
 // ==========================================
-// 1. TIPE DATA
+// 1. TIPE DATA (LAMA + BARU)
 // ==========================================
 
-// Template Lama
+// Tipe Template Lama (JANGAN DIHAPUS)
 type PhotoSlot = { x: number; y: number; width: number; height: number; };
 type PhotoTemplate = {
   id: string; name: string; imageUrl: string; photoCount: number;
   slots: PhotoSlot[]; canvasWidth: number; canvasHeight: number; createdAt: string;
 };
 
-// Photobox PRO (Baru)
+// Tipe Photobox PRO (BARU)
 type Frame = { id: string; name: string; imageUrl: string; type: 'image' | 'color'; color?: string; };
 type Sticker = { id: string; name: string; imageUrl: string; createdAt?: string; };
 
-// Helpers
+// Helper
 function randomId(prefix: string) { return prefix + "-" + Math.random().toString(16).slice(2); }
+const parseSwot = (raw: string | undefined) => {
+  if (!raw) return { plus: "", minus: "" };
+  const lines = raw.split('\n');
+  const plusLines = lines.filter(l => l.trim().startsWith('+')).map(l => l.replace(/^\+\s*/, ''));
+  const minusLines = lines.filter(l => l.trim().startsWith('-')).map(l => l.replace(/^\-\s*/, ''));
+  return { plus: plusLines.join('\n'), minus: minusLines.join('\n') };
+};
 
 export function Admin() {
   const [cfg, setCfg] = useState<ContentConfig>(() => loadConfig());
   const [pass, setPass] = useState("");
   const [ok, setOk] = useState(false);
+  
+  // Tab Menu
   const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'templates' | 'photobox' | 'gallery' | 'tools'>('general');
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
-  // State Template Lama
+  // --- STATE FITUR LAMA ---
   const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PhotoTemplate | null>(null);
   const [oldUserPhotos, setOldUserPhotos] = useState<any[]>([]);
 
-  // State Visual Editor Lama
+  // State Visual Editor Lama (Template)
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -46,7 +55,7 @@ export function Admin() {
   const [editorMode, setEditorMode] = useState<'visual' | 'manual'>('visual');
   const SCALE = 0.35; 
 
-  // State Photobox PRO (Baru)
+  // --- STATE FITUR BARU (PHOTOBOX PRO) ---
   const [photoboxTab, setPhotoboxTab] = useState<'frames' | 'stickers' | 'raw' | 'final'>('frames');
   const [rawPhotos, setRawPhotos] = useState<any[]>([]);
   const [finalDesigns, setFinalDesigns] = useState<any[]>([]);
@@ -57,7 +66,7 @@ export function Admin() {
   useEffect(() => { document.title = "Admin — Hangout Card"; }, []);
 
   // ---------------------------------------------------------
-  // LOGIC VISUAL EDITOR LAMA (JANGAN HAPUS)
+  // ⛔️ VISUAL EDITOR LOGIC LAMA (JANGAN UBAH)
   // ---------------------------------------------------------
   useEffect(() => {
     if (!editingTemplate || !canvasRef.current || editorMode !== 'visual') return;
@@ -132,7 +141,7 @@ export function Admin() {
   const handleMouseUp = () => { setIsDragging(false); setIsResizing(false); };
 
   // ---------------------------------------------------------
-  // LISTENERS
+  // ✅ LISTENERS (RAW, FINAL, STICKERS, OLD TEMPLATES)
   // ---------------------------------------------------------
   useEffect(() => {
     if (activeTab === 'templates') {
@@ -152,7 +161,7 @@ export function Admin() {
   }, [activeTab]);
 
   // ---------------------------------------------------------
-  // ACTIONS
+  // ✅ UPLOAD & ACTIONS (PHOTOBOX ONLY)
   // ---------------------------------------------------------
   const verify = () => { if (pass === (cfg.admin?.passcode || "")) setOk(true); };
   const updateConfig = (newCfg: ContentConfig) => { setCfg(prev => { const u = { ...prev, ...newCfg }; saveConfig(u); return u; }); };
@@ -226,7 +235,7 @@ export function Admin() {
     } catch(e) { console.error(e); }
   };
 
-  // Places & Outfits
+  // ⛔️ PLACES & OUTFITS LOGIC (JANGAN UBAH - SESUAI PERMINTAAN)
   const updateItem = (type: 'places'|'outfits', idx: number, field: string, val: any) => {
     const items = [...(cfg[type]?.items || [])]; items[idx] = { ...items[idx], [field]: val };
     updateConfig({ ...cfg, [type]: { ...cfg[type], items } });
@@ -240,6 +249,20 @@ export function Admin() {
     const items = [...(cfg[type]?.items || [])]; items.splice(idx, 1);
     updateConfig({ ...cfg, [type]: { ...cfg[type], items } });
   };
+  const updateSwot = (idx: number, type: 'plus' | 'minus', val: string) => {
+    const current = parseSwot(cfg.places.items[idx].swot);
+    const newPlus = type === 'plus' ? val : current.plus;
+    const newMinus = type === 'minus' ? val : current.minus;
+    const combined = `${newPlus.split('\n').filter(l=>l.trim()).map(l=>`+ ${l}`).join('\n')}\n${newMinus.split('\n').filter(l=>l.trim()).map(l=>`- ${l}`).join('\n')}`.trim();
+    updateItem('places', idx, 'swot', combined);
+  };
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader(); reader.onload = (event) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); let width = img.width; let height = img.height; const MAX_SIZE = 1200; if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } } canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d', { alpha: false }); ctx?.drawImage(img, 0, 0, width, height); callback(canvas.toDataURL('image/jpeg', 0.7)); }; img.src = event.target?.result as string; }; reader.readAsDataURL(file);
+  };
+  const addColorToPalette = (idx: number, color: string) => { const items = [...(cfg.outfits?.items || [])]; items[idx].palette = [...(items[idx].palette || []), color]; updateConfig({ ...cfg, outfits: { ...cfg.outfits!, items } }); };
+  const removeColorFromPalette = (oIdx: number, cIdx: number) => { const items = [...(cfg.outfits?.items || [])]; items[oIdx].palette?.splice(cIdx, 1); updateConfig({ ...cfg, outfits: { ...cfg.outfits!, items } }); };
+  const toggleTag = (idx: number, tag: string) => { const items = [...cfg.places.items]; const current = items[idx].tags || []; items[idx].tags = current.includes(tag) ? current.filter(t => t !== tag) : [...current.filter(t => !['dinner','snack','dessert'].includes(t)), tag]; updateConfig({ ...cfg, places: { ...cfg.places, items } }); };
 
   if (!ok) return <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{background:"#1e293b",padding:30,borderRadius:12}}><input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Passcode" style={{width:"100%",padding:10,marginBottom:10}}/><button onClick={verify} style={{width:"100%",padding:10,background:"blue",color:"white"}}>Login</button></div></div>;
 
@@ -261,6 +284,10 @@ export function Admin() {
         .sub-nav { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; }
         .sub-nav button { background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
         .sub-nav button.active { background: #10b981; }
+        .preview-box { width: 80px; height: 80px; background: #020617; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; }
+        .tag-row { display: flex; gap: 5px; }
+        .tag-chip { padding: 4px 8px; border-radius: 12px; border: 1px solid #475569; background: transparent; color: #94a3b8; cursor: pointer; font-size: 10px; }
+        .tag-chip.active { background: #8b5cf6; color: white; }
       `}</style>
 
       <div className="sidebar">
@@ -280,13 +307,78 @@ export function Admin() {
         <button className="btn btn-primary" style={{position:'fixed', top:20, right:20, zIndex:100}} onClick={handleSave}>💾 SAVE ALL</button>
 
         {activeTab === 'general' && (
-          <div><h2>General</h2><div className="card"><label>Music</label><input className="input" value={cfg.music||""} onChange={e=>updateConfig({music:e.target.value})} /></div></div>
+          <div><h2>General</h2><div className="card"><label>Music</label><input className="input" value={cfg.music||""} onChange={e=>updateConfig({music:e.target.value})} /></div><div className="card"><label>Letter</label><textarea className="input" style={{height:150}} value={cfg.letter?.text||""} onChange={e=>updateConfig({letter:{...cfg.letter,text:e.target.value}})} /></div></div>
         )}
 
-        {(activeTab === 'places' || activeTab === 'outfits') && (
+        {/* ⛔️ PLACES MANAGER (ASLI GAK DIUBAH) */}
+        {activeTab === 'places' && (
           <div>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><h2>Manager</h2><button className="btn btn-primary" onClick={()=>addItem(activeTab)}>+ Add</button></div>
-            {cfg[activeTab]?.items.map((item:any,i:number)=>(<div key={i} className="card"><input className="input" value={item.name} onChange={e=>updateItem(activeTab,i,'name',e.target.value)}/><button className="btn btn-danger" onClick={()=>removeItem(activeTab,i)}>Del</button></div>))}
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><h2>Places</h2><button className="btn btn-primary" onClick={()=>addItem('places')}>+ Add</button></div>
+            {cfg.places.items.map((p, idx) => {
+              const swot = parseSwot(p.swot);
+              return (
+                <div key={p.id} className="card">
+                  <input className="input" value={p.name} onChange={e => updateItem('places', idx, "name", e.target.value)} placeholder="Nama Tempat" />
+                  <div className="tag-row" style={{marginBottom:10}}>
+                    {['dinner', 'snack', 'dessert'].map(tag => (
+                      <button key={tag} className={`tag-chip ${p.tags.includes(tag) ? 'active' : ''}`} onClick={() => toggleTag(idx, tag)}>{tag}</button>
+                    ))}
+                  </div>
+                  <div style={{display:'flex',gap:10,marginBottom:10}}>
+                    <div className="preview-box">{p.image ? <img src={p.image} style={{width:'100%',height:'100%',objectFit:'cover'}}/> : "No Img"}</div>
+                    <div style={{flex:1}}>
+                      <input className="input" value={p.image} onChange={e => updateItem('places', idx, "image", e.target.value)} placeholder="Image URL"/>
+                      <input type="file" onChange={e => handleImageUpload(e, b64 => updateItem('places', idx, "image", b64))} style={{fontSize:10,color:'white'}}/>
+                    </div>
+                  </div>
+                  <textarea className="input" value={p.description} onChange={e => updateItem('places', idx, "description", e.target.value)} placeholder="Deskripsi"/>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    <input className="input" value={p.budget||""} onChange={e => updateItem('places', idx, "budget", e.target.value)} placeholder="Budget"/>
+                    <input className="input" value={p.openHours||""} onChange={e => updateItem('places', idx, "openHours", e.target.value)} placeholder="Jam Buka"/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    <textarea className="input" value={swot.plus} onChange={e => updateSwot(idx, 'plus', e.target.value)} placeholder="+ Kelebihan"/>
+                    <textarea className="input" value={swot.minus} onChange={e => updateSwot(idx, 'minus', e.target.value)} placeholder="- Kekurangan"/>
+                  </div>
+                  <div style={{display:'flex',gap:10}}>
+                    <input className="input" value={p.locationUrl} onChange={e => updateItem('places', idx, "locationUrl", e.target.value)} placeholder="Maps URL"/>
+                    <button className="btn btn-danger" onClick={()=>removeItem('places', idx)}>Del</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ⛔️ OUTFITS MANAGER (ASLI GAK DIUBAH) */}
+        {activeTab === 'outfits' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><h2>Outfits</h2><button className="btn btn-primary" onClick={()=>addItem('outfits')}>+ Add</button></div>
+            {(cfg.outfits?.items || []).map((o, idx) => (
+              <div key={o.id} className="card">
+                <input className="input" value={o.name} onChange={e => updateItem('outfits', idx, "name", e.target.value)} placeholder="Nama Style" />
+                <select className="input" value={o.style || 'casual'} onChange={e => updateItem('outfits', idx, "style", e.target.value)}>
+                  <option value="casual">Casual</option><option value="formal">Formal</option><option value="sporty">Sporty</option><option value="vintage">Vintage</option>
+                </select>
+                <div style={{marginBottom:10}}>
+                  <div style={{display:'flex',gap:5,marginBottom:5}}>
+                    {(o.palette || []).map((color, cIdx) => (
+                      <div key={cIdx} onClick={() => removeColorFromPalette(idx, cIdx)} style={{width:20,height:20,borderRadius:'50%',background:color,cursor:'pointer',border:'1px solid white'}} />
+                    ))}
+                    {(o.palette || []).length < 5 && <input type="color" onChange={(e) => addColorToPalette(idx, e.target.value)} style={{width:25,height:25,padding:0,border:'none',background:'transparent'}} />}
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:10,marginBottom:10}}>
+                  <div className="preview-box">{o.image ? <img src={o.image} style={{width:'100%',height:'100%',objectFit:'cover'}}/> : "No Img"}</div>
+                  <div style={{flex:1}}>
+                    <input className="input" value={o.image} onChange={e => updateItem('outfits', idx, "image", e.target.value)} placeholder="Image URL"/>
+                    <input type="file" onChange={e => handleImageUpload(e, b64 => updateItem('outfits', idx, "image", b64))} style={{fontSize:10,color:'white'}}/>
+                  </div>
+                </div>
+                <input className="input" value={o.description} onChange={e => updateItem('outfits', idx, "description", e.target.value)} placeholder="Deskripsi (Cewek | Cowok)"/>
+                <button className="btn btn-danger" onClick={()=>removeItem('outfits', idx)}>Delete</button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -350,44 +442,20 @@ export function Admin() {
                 <div className="grid-cards">{stickers.map(s=>(<div key={s.id} className="card"><img src={s.imageUrl} style={{width:80,height:80,objectFit:'contain'}}/><button className="btn btn-danger" onClick={()=>deleteItem('sticker',s.id)}>Del</button></div>))}</div>
               </div>
             )}
-            {photoboxTab === 'raw' && <div className="grid-cards">{rawPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%',borderRadius:8}}/><a href={p.url} target="_blank" className="btn btn-primary" style={{marginTop:10,display:'block',textAlign:'center'}}>View</a><button className="btn btn-danger" style={{width:'100%',marginTop:5}} onClick={()=>deleteItem('raw',p.id,p.url)}>Del</button></div>))}</div>}
+            {photoboxTab === 'raw' && <div className="grid-cards">{rawPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%',borderRadius:8}}/><a href={p.url} target="_blank" className="btn btn-primary" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}}>View</a><button className="btn btn-danger" style={{width:'100%',marginTop:5}} onClick={()=>deleteItem('raw',p.id,p.url)}>Del</button></div>))}</div>}
             
-            {/* ✅ FIX DI SINI: Gunakan <a> untuk download dengan benar */}
+            {/* ✅ FIX BUG <a> TAG DISINI */}
             {photoboxTab === 'final' && <div className="grid-cards">{finalDesigns.map(d=>(<div key={d.id} className="card" style={{border:'2px solid #10b981'}}><img src={d.url} style={{width:'100%',borderRadius:8}}/><a href={d.url} download className="btn btn-success" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}}>⬇️ Download</a><button className="btn btn-danger" style={{width:'100%',marginTop:5}} onClick={()=>deleteItem('final',d.id,d.url)}>Del</button></div>))}</div>}
           </div>
         )}
 
         {/* --- FITUR LAMA: GALLERY --- */}
         {activeTab === 'gallery' && (
-        {activeTab === 'gallery' && (
-          <div>
-            <h2>Gallery Lama</h2>
-            <div className="grid-cards">
-              {oldUserPhotos.map(p => (
-                <div key={p.id} className="card">
-                  <img src={p.url} style={{width:'100%'}}/>
-                  <a href={p.url} target="_blank" rel="noopener noreferrer" style={{color:'#3b82f6'}}>Open</a>
-                </div>
-              ))}
-            </div>
-          </div>
+          <div><h2>Gallery Lama</h2><div className="grid-cards">{oldUserPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%'}}/><a href={p.url} target="_blank" style={{color:'#3b82f6'}}>Open</a></div>))}</div>
         )}
 
         {activeTab === 'tools' && (
-          <div>
-            <h2>Tools</h2>
-            <button 
-              className="btn btn-danger" 
-              onClick={() => {
-                if(confirm("Reset?")) {
-                  resetConfig();
-                  window.location.reload();
-                }
-              }}
-            >
-              Reset Config
-            </button>
-          </div>
+          <div><h2>Tools</h2><button className="btn btn-danger" onClick={()=>{if(confirm("Reset?")){resetConfig();window.location.reload();}}}>Reset Config</button></div>
         )}
       </div>
     </div>
