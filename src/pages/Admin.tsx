@@ -33,6 +33,16 @@ type UserPhoto = {
   createdAt: string;
 };
 
+// ✅ Schedule/Rundown Types
+type ScheduleItem = {
+  id: string;
+  timeStart: string;
+  timeEnd: string;
+  activity: string;
+  description: string;
+  category: 'static' | 'dinner' | 'snack' | 'dessert' | 'user_choice';
+};
+
 // --- HELPER FUNCTIONS ---
 function randomId(prefix: string) {
   return prefix + "-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
@@ -60,6 +70,9 @@ export function Admin() {
 
   // ✅ GALLERY STATES
   const [userPhotos, setUserPhotos] = useState<UserPhoto[]>([]);
+
+  // ✅ SCHEDULE STATES
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
 
   // ✅ VISUAL EDITOR STATES
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -234,6 +247,22 @@ export function Admin() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
+  // Load schedules from Firestore
+  useEffect(() => {
+    let unsubscribe: any;
+    const startListener = async () => {
+      if (activeTab !== 'general') return;
+      const { collection, query, onSnapshot } = await import("firebase/firestore");
+      const q = query(collection(db, "schedules"));
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ScheduleItem[];
+        setSchedules(items.sort((a, b) => a.timeStart.localeCompare(b.timeStart)));
+      });
+    };
+    startListener();
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [activeTab]);
+
   // --- TEMPLATE FUNCTIONS ---
   const uploadTemplateToCloudinary = async (file: File): Promise<string> => {
     const formData = new FormData();
@@ -298,6 +327,28 @@ export function Admin() {
       alert("✅ Slot posisi berhasil disimpan!");
       setEditingTemplate(null);
     } catch (err) { alert("❌ Gagal simpan perubahan"); }
+  };
+
+  const saveSchedulesToFirebase = async () => {
+    try {
+      const { doc, setDoc, deleteDoc, collection, getDocs } = await import("firebase/firestore");
+      
+      // Clear existing schedules
+      const querySnapshot = await getDocs(collection(db, "schedules"));
+      await Promise.all(querySnapshot.docs.map(d => deleteDoc(d.ref)));
+      
+      // Save new schedules
+      await Promise.all(
+        schedules.map(schedule => 
+          setDoc(doc(db, "schedules", schedule.id), schedule)
+        )
+      );
+      
+      alert("✅ Rundown berhasil disimpan!");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Gagal simpan rundown");
+    }
   };
 
   // --- CRUD HELPERS (Places & Outfits) ---
@@ -410,6 +461,41 @@ export function Admin() {
       newItems.splice(idx, 1); 
       updateConfig({ ...cfg, outfits: { ...cfg.outfits!, items: newItems } }); 
     }
+  };
+
+  // --- SCHEDULE FUNCTIONS ---
+  const addSchedule = () => {
+    const newSchedule: ScheduleItem = {
+      id: randomId("schedule"),
+      timeStart: "16:00",
+      timeEnd: "17:00",
+      activity: "New Activity",
+      description: "",
+      category: "static"
+    };
+    setSchedules([...schedules, newSchedule]);
+  };
+
+  const updateSchedule = (idx: number, field: keyof ScheduleItem, value: any) => {
+    const newSchedules = [...schedules];
+    newSchedules[idx] = { ...newSchedules[idx], [field]: value };
+    setSchedules(newSchedules);
+  };
+
+  const removeSchedule = (idx: number) => {
+    if(!confirm("Hapus jadwal ini?")) return;
+    const newSchedules = [...schedules];
+    newSchedules.splice(idx, 1);
+    setSchedules(newSchedules);
+  };
+
+  const sortSchedules = () => {
+    const sorted = [...schedules].sort((a, b) => {
+      const timeA = a.timeStart.replace(':', '');
+      const timeB = b.timeStart.replace(':', '');
+      return timeA.localeCompare(timeB);
+    });
+    setSchedules(sorted);
   };
 
   if (!ok) {
@@ -737,6 +823,7 @@ export function Admin() {
           <div>
             <div className="section-title">General Settings</div>
             
+            {/* Music Settings */}
             <div className="card">
               <label className="label">Background Music (MP3 URL)</label>
               <input 
@@ -747,6 +834,7 @@ export function Admin() {
               />
             </div>
 
+            {/* Letter Settings */}
             <div className="card">
               <label className="label">Isi Surat (Letter)</label>
               <textarea 
@@ -756,6 +844,152 @@ export function Admin() {
                 onChange={e => updateConfig({...cfg, letter: { ...cfg.letter, text: e.target.value }})} 
                 placeholder="Tulis surat untuk Keysia di sini..."
               />
+            </div>
+
+            {/* SCHEDULE/RUNDOWN MANAGER */}
+            <div className="card" style={{ background: '#0f172a', border: '2px solid #334155' }}>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                marginBottom: 24,
+                paddingBottom: 16,
+                borderBottom: '2px solid #1e293b'
+              }}>
+                <div>
+                  <h2 style={{ color: 'white', margin: 0, fontSize: 20 }}>📅 Edit Rundown Acara</h2>
+                  <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0 0' }}>
+                    Atur jadwal kegiatan untuk hari H
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn btn-primary" onClick={sortSchedules}>
+                    🔄 Sort by Time
+                  </button>
+                  <button className="btn btn-success" onClick={addSchedule}>
+                    + Tambah Jadwal
+                  </button>
+                </div>
+              </div>
+
+              {schedules.length === 0 ? (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '40px', 
+                  color: '#64748b',
+                  background: '#1e293b',
+                  borderRadius: 12
+                }}>
+                  📋 Belum ada jadwal. Klik "Tambah Jadwal" untuk mulai!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {schedules.map((schedule, idx) => (
+                    <div 
+                      key={schedule.id} 
+                      style={{ 
+                        background: '#1e293b', 
+                        border: '1px solid #334155',
+                        borderRadius: 12, 
+                        padding: 16,
+                        display: 'grid',
+                        gridTemplateColumns: '200px 180px 1fr 220px 40px',
+                        gap: 12,
+                        alignItems: 'center'
+                      }}
+                    >
+                      {/* Time Start */}
+                      <input
+                        type="time"
+                        className="input"
+                        style={{ fontSize: 14 }}
+                        value={schedule.timeStart}
+                        onChange={e => updateSchedule(idx, 'timeStart', e.target.value)}
+                      />
+
+                      {/* Activity Name */}
+                      <input
+                        className="input"
+                        placeholder="Activity"
+                        value={schedule.activity}
+                        onChange={e => updateSchedule(idx, 'activity', e.target.value)}
+                        style={{ textTransform: 'uppercase', fontWeight: 600 }}
+                      />
+
+                      {/* Description */}
+                      <input
+                        className="input"
+                        placeholder="Deskripsi..."
+                        value={schedule.description}
+                        onChange={e => updateSchedule(idx, 'description', e.target.value)}
+                      />
+
+                      {/* Category Dropdown */}
+                      <select
+                        className="input"
+                        value={schedule.category}
+                        onChange={e => updateSchedule(idx, 'category', e.target.value)}
+                      >
+                        <option value="static">Static (Teks)</option>
+                        <option value="dinner">Dinner (Pilihan User)</option>
+                        <option value="snack">Snack (Pilihan User)</option>
+                        <option value="dessert">Dessert (Pilihan User)</option>
+                      </select>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => removeSchedule(idx)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          fontSize: 20,
+                          padding: 8,
+                          borderRadius: 6,
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#1e293b'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {schedules.length > 0 && (
+                <div style={{ 
+                  marginTop: 20, 
+                  paddingTop: 20, 
+                  borderTop: '1px solid #334155',
+                  display: 'flex',
+                  gap: 12
+                }}>
+                  <button 
+                    className="btn btn-success" 
+                    onClick={saveSchedulesToFirebase}
+                    style={{ flex: 1, padding: '14px', fontSize: 15 }}
+                  >
+                    💾 Simpan Rundown ke Database
+                  </button>
+                </div>
+              )}
+
+              <div style={{ 
+                marginTop: 16, 
+                padding: 12, 
+                background: '#020617', 
+                borderRadius: 8,
+                fontSize: 12,
+                color: '#64748b',
+                lineHeight: 1.6
+              }}>
+                <div><strong style={{color:'#94a3b8'}}>💡 Tips:</strong></div>
+                <div>• <strong>Static:</strong> Teks deskripsi bebas.</div>
+                <div>• <strong>Dinner/Snack/Dessert:</strong> Otomatis nampilin nama tempat yang dipilih user di section Places.</div>
+              </div>
             </div>
           </div>
         )}
