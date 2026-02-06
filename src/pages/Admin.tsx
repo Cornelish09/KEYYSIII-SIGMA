@@ -359,7 +359,6 @@ export function Admin() {
 
         {/* --- FITUR LAMA: GALLERY --- */}
         {activeTab === 'gallery' && (
-        {activeTab === 'gallery' && (
           <div>
             <h2>Gallery Lama</h2>
             <div className="grid-cards">
