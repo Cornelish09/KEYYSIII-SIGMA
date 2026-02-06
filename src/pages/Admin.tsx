@@ -1,333 +1,369 @@
 import { db, storage } from "../firebase"; 
-import { doc, setDoc, deleteDoc, collection, query, orderBy, onSnapshot } from "firebase/firestore"; 
+import { doc, setDoc, deleteDoc, collection, query, orderBy, onSnapshot, addDoc } from "firebase/firestore"; 
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { ContentConfig, Place, Outfit } from "../lib/types";
 import { loadConfig, saveConfig, resetConfig } from "../lib/storage";
 import { logEvent } from "../lib/activity";
 
-// --- TYPES LOCAL ---
-type Frame = {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  color?: string;
-  type: 'image' | 'color';
+// ==========================================
+// 1. TIPE DATA
+// ==========================================
+
+// Template Lama
+type PhotoSlot = { x: number; y: number; width: number; height: number; };
+type PhotoTemplate = {
+  id: string; name: string; imageUrl: string; photoCount: number;
+  slots: PhotoSlot[]; canvasWidth: number; canvasHeight: number; createdAt: string;
 };
 
-type Sticker = {
-  id: string;
-  name: string;
-  imageUrl: string;
-};
+// Photobox PRO (Baru)
+type Frame = { id: string; name: string; imageUrl: string; type: 'image' | 'color'; color?: string; };
+type Sticker = { id: string; name: string; imageUrl: string; createdAt?: string; };
 
-// --- HELPER FUNCTIONS ---
-function randomId(prefix: string) {
-  return prefix + "-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
-}
-
-const parseSwot = (raw: string | undefined) => {
-  if (!raw) return { plus: "", minus: "" };
-  const lines = raw.split('\n');
-  const plusLines = lines.filter(l => l.trim().startsWith('+')).map(l => l.replace(/^\+\s*/, ''));
-  const minusLines = lines.filter(l => l.trim().startsWith('-')).map(l => l.replace(/^\-\s*/, ''));
-  return { plus: plusLines.join('\n'), minus: minusLines.join('\n') };
-};
+// Helpers
+function randomId(prefix: string) { return prefix + "-" + Math.random().toString(16).slice(2); }
 
 export function Admin() {
   const [cfg, setCfg] = useState<ContentConfig>(() => loadConfig());
   const [pass, setPass] = useState("");
   const [ok, setOk] = useState(false);
-  
-  // ✅ MAIN TABS (Photobox gw jadiin satu tab utama biar rapi)
-  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'photobox' | 'tools'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'templates' | 'photobox' | 'gallery' | 'tools'>('general');
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
-  // ========================================
-  // 📸 PHOTOBOX STATES & LOGIC
-  // ========================================
+  // State Template Lama
+  const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<PhotoTemplate | null>(null);
+  const [oldUserPhotos, setOldUserPhotos] = useState<any[]>([]);
+
+  // State Visual Editor Lama
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [editorMode, setEditorMode] = useState<'visual' | 'manual'>('visual');
+  const SCALE = 0.35; 
+
+  // State Photobox PRO (Baru)
   const [photoboxTab, setPhotoboxTab] = useState<'frames' | 'stickers' | 'raw' | 'final'>('frames');
   const [rawPhotos, setRawPhotos] = useState<any[]>([]);
   const [finalDesigns, setFinalDesigns] = useState<any[]>([]);
+  const [stickers, setStickers] = useState<Sticker[]>([]);
   const [uploadingFrame, setUploadingFrame] = useState(false);
   const [uploadingSticker, setUploadingSticker] = useState(false);
 
-  // 1. LISTENERS (Raw & Final)
+  useEffect(() => { document.title = "Admin — Hangout Card"; }, []);
+
+  // ---------------------------------------------------------
+  // LOGIC VISUAL EDITOR LAMA (JANGAN HAPUS)
+  // ---------------------------------------------------------
   useEffect(() => {
-    if (activeTab !== 'photobox') return;
+    if (!editingTemplate || !canvasRef.current || editorMode !== 'visual') return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    // Listen Raw Photos
-    const qRaw = query(collection(db, 'photobox_raw'), orderBy('createdAt', 'desc'));
-    const unsubRaw = onSnapshot(qRaw, (snap) => setRawPhotos(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      editingTemplate.slots.forEach((slot, index) => {
+        const isSelected = selectedSlot === index;
+        ctx.strokeStyle = isSelected ? '#10b981' : '#3b82f6';
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.strokeRect(slot.x * SCALE, slot.y * SCALE, slot.width * SCALE, slot.height * SCALE);
+        ctx.fillStyle = isSelected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+        ctx.fillRect(slot.x * SCALE, slot.y * SCALE, slot.width * SCALE, slot.height * SCALE);
+        ctx.fillStyle = isSelected ? '#10b981' : '#3b82f6';
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText(`${index + 1}`, slot.x * SCALE + 10, slot.y * SCALE + 30);
+        if (isSelected) {
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect((slot.x + slot.width) * SCALE - 10, (slot.y + slot.height) * SCALE - 10, 20, 20);
+        }
+      });
+    };
+    img.src = editingTemplate.imageUrl;
+  }, [editingTemplate, selectedSlot, editorMode]);
 
-    // Listen Final Designs
-    const qFinal = query(collection(db, 'photobox_final'), orderBy('createdAt', 'desc'));
-    const unsubFinal = onSnapshot(qFinal, (snap) => setFinalDesigns(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!editingTemplate) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) / SCALE;
+    const mouseY = (e.clientY - rect.top) / SCALE;
 
-    return () => { unsubRaw(); unsubFinal(); };
+    if (selectedSlot !== null) {
+      const slot = editingTemplate.slots[selectedSlot];
+      if (Math.abs(mouseX - (slot.x + slot.width)) < 25 && Math.abs(mouseY - (slot.y + slot.height)) < 25) {
+        setIsResizing(true); setDragStart({ x: mouseX, y: mouseY }); return;
+      }
+    }
+    for (let i = editingTemplate.slots.length - 1; i >= 0; i--) {
+      const slot = editingTemplate.slots[i];
+      if (mouseX >= slot.x && mouseX <= slot.x + slot.width && mouseY >= slot.y && mouseY <= slot.y + slot.height) {
+        setSelectedSlot(i); setIsDragging(true); setDragStart({ x: mouseX - slot.x, y: mouseY - slot.y }); return;
+      }
+    }
+    setSelectedSlot(null);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if ((!isDragging && !isResizing) || !editingTemplate || selectedSlot === null) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) / SCALE;
+    const mouseY = (e.clientY - rect.top) / SCALE;
+    const newSlots = [...editingTemplate.slots];
+    const slot = newSlots[selectedSlot];
+
+    if (isResizing) {
+      slot.width = Math.max(50, mouseX - slot.x);
+      slot.height = Math.max(50, mouseY - slot.y);
+    } else if (isDragging) {
+      slot.x = mouseX - dragStart.x;
+      slot.y = mouseY - dragStart.y;
+    }
+    setEditingTemplate({ ...editingTemplate, slots: newSlots });
+  };
+  const handleMouseUp = () => { setIsDragging(false); setIsResizing(false); };
+
+  // ---------------------------------------------------------
+  // LISTENERS
+  // ---------------------------------------------------------
+  useEffect(() => {
+    if (activeTab === 'templates') {
+      const q = query(collection(db, "photobox_templates"), orderBy("createdAt", "desc"));
+      return onSnapshot(q, (snap) => setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as PhotoTemplate))));
+    }
+    if (activeTab === 'gallery') {
+      const q = query(collection(db, "secret_photos"), orderBy("createdAt", "desc"));
+      return onSnapshot(q, (snap) => setOldUserPhotos(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    }
+    if (activeTab === 'photobox') {
+      const unsubRaw = onSnapshot(query(collection(db, 'photobox_raw'), orderBy('createdAt', 'desc')), (s) => setRawPhotos(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+      const unsubFinal = onSnapshot(query(collection(db, 'photobox_final'), orderBy('createdAt', 'desc')), (s) => setFinalDesigns(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+      const unsubSticker = onSnapshot(query(collection(db, 'stickers'), orderBy('createdAt', 'desc')), (s) => setStickers(s.docs.map(d => ({ id: d.id, ...d.data() } as Sticker))));
+      return () => { unsubRaw(); unsubFinal(); unsubSticker(); };
+    }
   }, [activeTab]);
 
-  // 2. UPLOAD HANDLERS
-  const uploadFrame = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingFrame(true);
-    try {
-      const timestamp = Date.now();
-      const path = storageRef(storage, `photobox/frames/${timestamp}_${file.name}`);
-      await uploadBytes(path, file);
-      const url = await getDownloadURL(path);
-
-      const newFrame: Frame = {
-        id: `frame_${timestamp}`,
-        name: file.name.replace(/\.[^/.]+$/, ''),
-        imageUrl: url,
-        type: 'image',
-      };
-
-      const updatedCfg = { ...cfg, photobox: { ...cfg.photobox, frames: [...(cfg.photobox?.frames || []), newFrame] } };
-      await setDoc(doc(db, 'configs', 'main_config'), updatedCfg);
-      updateConfig(updatedCfg);
-      alert('✅ Frame uploaded!');
-    } catch (e) { console.error(e); alert('❌ Upload failed'); } finally { setUploadingFrame(false); }
-  };
-
-  const uploadSticker = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingSticker(true);
-    try {
-      const timestamp = Date.now();
-      const path = storageRef(storage, `photobox/stickers/${timestamp}_${file.name}`);
-      await uploadBytes(path, file);
-      const url = await getDownloadURL(path);
-
-      const newSticker: Sticker = {
-        id: `sticker_${timestamp}`,
-        name: file.name.replace(/\.[^/.]+$/, ''),
-        imageUrl: url,
-      };
-
-      const updatedCfg = { ...cfg, photobox: { ...cfg.photobox, stickers: [...(cfg.photobox?.stickers || []), newSticker] } };
-      await setDoc(doc(db, 'configs', 'main_config'), updatedCfg);
-      updateConfig(updatedCfg);
-      alert('✅ Sticker uploaded!');
-    } catch (e) { console.error(e); alert('❌ Upload failed'); } finally { setUploadingSticker(false); }
-  };
-
-  // 3. DELETE HANDLERS
-  const deleteFrame = async (id: string) => {
-    if (!confirm('Delete Frame?')) return;
-    const updated = cfg.photobox?.frames?.filter(f => f.id !== id) || [];
-    const newCfg = { ...cfg, photobox: { ...cfg.photobox, frames: updated } };
-    await setDoc(doc(db, 'configs', 'main_config'), newCfg);
-    updateConfig(newCfg);
-  };
-
-  const deleteSticker = async (id: string) => {
-    if (!confirm('Delete Sticker?')) return;
-    const updated = cfg.photobox?.stickers?.filter(s => s.id !== id) || [];
-    const newCfg = { ...cfg, photobox: { ...cfg.photobox, stickers: updated } };
-    await setDoc(doc(db, 'configs', 'main_config'), newCfg);
-    updateConfig(newCfg);
-  };
-
-  const deletePhoto = async (collectionName: string, id: string, url?: string) => {
-    if (!confirm('Delete Photo?')) return;
-    try {
-      await deleteDoc(doc(db, collectionName, id));
-      if (url) { try { await deleteObject(storageRef(storage, url)); } catch(e) { console.log('Storage delete err', e) } }
-      alert('✅ Deleted');
-    } catch(e) { alert('❌ Error'); }
-  };
-
-  // ========================================
-  // GENERAL ADMIN LOGIC
-  // ========================================
-  const verify = () => { const good = pass === (cfg.admin?.passcode || ""); setOk(good); logEvent("admin_verify", { ok: good }); };
-  const updateConfig = (newCfg: any) => { setCfg(prev => { const updated = { ...prev, ...newCfg }; saveConfig(updated); return updated; }); };
+  // ---------------------------------------------------------
+  // ACTIONS
+  // ---------------------------------------------------------
+  const verify = () => { if (pass === (cfg.admin?.passcode || "")) setOk(true); };
+  const updateConfig = (newCfg: ContentConfig) => { setCfg(prev => { const u = { ...prev, ...newCfg }; saveConfig(u); return u; }); };
+  
   const handleSave = async () => {
     try {
       await setDoc(doc(db, "configs", "main_config"), cfg);
       saveConfig(cfg); 
-      localStorage.setItem("hangout_card_config_v1", JSON.stringify(cfg));
-      window.dispatchEvent(new Event("storage"));
-      alert("✅ Saved to Firebase!");
-    } catch (e) { alert("❌ Save failed"); }
+      alert("✅ Saved!");
+    } catch (e) { alert("❌ Error saving"); }
   };
 
-  // Helper CRUD for Places/Outfits
+  const uploadFile = async (file: File, path: string) => {
+    const storagePath = storageRef(storage, `photobox/${path}/${Date.now()}_${file.name}`);
+    await uploadBytes(storagePath, file);
+    return await getDownloadURL(storagePath);
+  };
+
+  // Upload Template Lama
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingTemplate(true);
+    try {
+      const url = await uploadFile(file, 'templates');
+      const photoCount = parseInt(prompt("Jumlah foto (1-4)?") || "1");
+      const defaultSlots = Array.from({length: photoCount}).map((_, i) => ({ x: 50, y: 50 + (i * 300), width: 400, height: 250 }));
+      const newTemp: PhotoTemplate = { id: Date.now().toString(), name: "New Template", imageUrl: url, photoCount, slots: defaultSlots, canvasWidth: 707, canvasHeight: 2000, createdAt: new Date().toISOString() };
+      await setDoc(doc(db, "photobox_templates", newTemp.id), newTemp);
+      alert("✅ Template uploaded");
+    } catch(e) { alert("❌ Gagal upload"); }
+    setUploadingTemplate(false);
+  };
+
+  // Upload Frame Baru
+  const uploadFrame = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingFrame(true);
+    const url = await uploadFile(file, 'frames');
+    const newFrame: Frame = { id: `frame_${Date.now()}`, name: file.name, imageUrl: url, type: 'image' };
+    const updatedCfg = { ...cfg, photobox: { ...cfg.photobox, frames: [...(cfg.photobox?.frames || []), newFrame] } };
+    await setDoc(doc(db, 'configs', 'main_config'), updatedCfg); updateConfig(updatedCfg);
+    setUploadingFrame(false);
+  };
+
+  // Upload Sticker Baru
+  const uploadSticker = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingSticker(true);
+    const url = await uploadFile(file, 'stickers');
+    await addDoc(collection(db, "stickers"), { name: file.name, imageUrl: url, createdAt: new Date().toISOString() });
+    setUploadingSticker(false);
+  };
+
+  // Delete Items
+  const deleteItem = async (type: string, id: string, url?: string) => {
+    if(!confirm("Hapus item ini?")) return;
+    try {
+      if (type === 'frame') {
+        const frames = cfg.photobox?.frames?.filter(f => f.id !== id) || [];
+        const newCfg = { ...cfg, photobox: { ...cfg.photobox, frames } };
+        await setDoc(doc(db, "configs", "main_config"), newCfg);
+        updateConfig(newCfg);
+      } else if (type === 'sticker') {
+        await deleteDoc(doc(db, "stickers", id));
+      } else if (type === 'template') {
+        await deleteDoc(doc(db, "photobox_templates", id));
+      } else {
+        await deleteDoc(doc(db, type === 'raw' ? "photobox_raw" : "photobox_final", id));
+      }
+      if (url) await deleteObject(storageRef(storage, url)).catch(console.error);
+    } catch(e) { console.error(e); }
+  };
+
+  // Places & Outfits
   const updateItem = (type: 'places'|'outfits', idx: number, field: string, val: any) => {
-    const items = [...(cfg[type]?.items || [])];
-    items[idx] = { ...items[idx], [field]: val };
+    const items = [...(cfg[type]?.items || [])]; items[idx] = { ...items[idx], [field]: val };
     updateConfig({ ...cfg, [type]: { ...cfg[type], items } });
   };
   const addItem = (type: 'places'|'outfits') => {
-    const newItem: any = type === 'places' 
-      ? { id: randomId('p'), name: "New Place", description: "", image: "", tags: ["dinner"], swot: "" }
-      : { id: randomId('o'), name: "New Style", image: "", style: "casual", palette: [] };
+    const newItem: any = type === 'places' ? { id: randomId('p'), name: "New", image: "", tags: ["dinner"], swot: "" } : { id: randomId('o'), name: "New", image: "", style: "casual" };
     updateConfig({ ...cfg, [type]: { ...cfg[type], items: [newItem, ...(cfg[type]?.items || [])] } });
   };
   const removeItem = (type: 'places'|'outfits', idx: number) => {
-    if(!confirm("Remove?")) return;
-    const items = [...(cfg[type]?.items || [])];
-    items.splice(idx, 1);
+    if(!confirm("Hapus?")) return;
+    const items = [...(cfg[type]?.items || [])]; items.splice(idx, 1);
     updateConfig({ ...cfg, [type]: { ...cfg[type], items } });
   };
 
-  if (!ok) return (
-    <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#1e293b", padding: 30, borderRadius: 12 }}>
-        <h2 style={{color:'white',marginTop:0}}>🔒 Admin Access</h2>
-        <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Passcode" style={{width:"100%",padding:10,marginBottom:15}}/>
-        <button onClick={verify} style={{width:"100%",padding:10,background:"#3b82f6",color:"white",border:"none"}}>Login</button>
-      </div>
-    </div>
-  );
+  if (!ok) return <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{background:"#1e293b",padding:30,borderRadius:12}}><input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Passcode" style={{width:"100%",padding:10,marginBottom:10}}/><button onClick={verify} style={{width:"100%",padding:10,background:"blue",color:"white"}}>Login</button></div></div>;
 
   return (
     <div className="admin-layout">
       <style>{`
         .admin-layout { display: flex; min-height: 100vh; background: #0f172a; color: #cbd5e1; font-family: sans-serif; }
-        .sidebar { width: 240px; background: #1e293b; padding: 20px; position: fixed; height: 100vh; }
-        .main-content { flex: 1; margin-left: 240px; padding: 40px; max-width: 1000px; }
-        .btn { padding: 10px 20px; border-radius: 6px; cursor: pointer; border: none; font-weight: bold; }
+        .sidebar { width: 220px; background: #1e293b; padding: 20px; position: fixed; height: 100vh; border-right: 1px solid #334155; }
+        .main-content { flex: 1; margin-left: 220px; padding: 40px; }
+        .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; font-weight: bold; font-size:12px; }
         .btn-primary { background: #3b82f6; color: white; }
         .btn-danger { background: #ef4444; color: white; }
-        .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
-        .input { width: 100%; background: #020617; border: 1px solid #475569; color: white; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+        .btn-success { background: #10b981; color: white; }
+        .card { background: #1e293b; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #334155; }
+        .input { width: 100%; background: #020617; border: 1px solid #475569; color: white; padding: 8px; border-radius: 4px; margin-bottom: 8px; }
         .nav-btn { display: block; width: 100%; text-align: left; padding: 12px; background: transparent; color: #94a3b8; border: none; cursor: pointer; border-radius: 8px; margin-bottom: 5px; font-weight: 600; }
         .nav-btn.active { background: #3b82f6; color: white; }
-        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
-        .sub-nav { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        .sub-nav button { background: #475569; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; }
+        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .sub-nav { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; }
+        .sub-nav button { background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
         .sub-nav button.active { background: #10b981; }
       `}</style>
 
       <div className="sidebar">
-        <h3 style={{color:'white', marginBottom:20}}>⚡ Admin Panel</h3>
+        <h3 style={{color:'white', marginBottom:20}}>⚡ Admin</h3>
         <button className={`nav-btn ${activeTab==='general'?'active':''}`} onClick={()=>setActiveTab('general')}>🏠 General</button>
         <button className={`nav-btn ${activeTab==='places'?'active':''}`} onClick={()=>setActiveTab('places')}>📍 Places</button>
         <button className={`nav-btn ${activeTab==='outfits'?'active':''}`} onClick={()=>setActiveTab('outfits')}>👗 Outfits</button>
-        <button className={`nav-btn ${activeTab==='photobox'?'active':''}`} onClick={()=>setActiveTab('photobox')}>📸 Photobox Manager</button>
+        <hr style={{borderColor:'#334155', margin:'15px 0'}}/>
+        <button className={`nav-btn ${activeTab==='templates'?'active':''}`} onClick={()=>setActiveTab('templates')}>🎨 Template (Old)</button>
+        <button className={`nav-btn ${activeTab==='photobox'?'active':''}`} onClick={()=>setActiveTab('photobox')}>📸 Photobox PRO</button>
+        <hr style={{borderColor:'#334155', margin:'15px 0'}}/>
+        <button className={`nav-btn ${activeTab==='gallery'?'active':''}`} onClick={()=>setActiveTab('gallery')}>🖼️ Gallery (Old)</button>
         <button className={`nav-btn ${activeTab==='tools'?'active':''}`} onClick={()=>setActiveTab('tools')}>🔧 Tools</button>
       </div>
 
       <div className="main-content">
-        <button className="btn btn-primary" style={{position:'fixed', top:20, right:20, zIndex:100}} onClick={handleSave}>💾 SAVE CHANGES</button>
+        <button className="btn btn-primary" style={{position:'fixed', top:20, right:20, zIndex:100}} onClick={handleSave}>💾 SAVE ALL</button>
 
         {activeTab === 'general' && (
-          <div>
-            <h2>General Settings</h2>
-            <div className="card"><label>Music URL</label><input className="input" value={cfg.music||""} onChange={e=>updateConfig({music:e.target.value})} /></div>
-            <div className="card"><label>Letter Text</label><textarea className="input" style={{height:150}} value={cfg.letter?.text||""} onChange={e=>updateConfig({letter:{...cfg.letter,text:e.target.value}})} /></div>
-          </div>
+          <div><h2>General</h2><div className="card"><label>Music</label><input className="input" value={cfg.music||""} onChange={e=>updateConfig({music:e.target.value})} /></div></div>
         )}
 
         {(activeTab === 'places' || activeTab === 'outfits') && (
           <div>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:20}}>
-              <h2>{activeTab === 'places' ? 'Places' : 'Outfits'} Manager</h2>
-              <button className="btn btn-primary" onClick={()=>addItem(activeTab)}>+ Add Item</button>
-            </div>
-            {cfg[activeTab]?.items.map((item: any, idx: number) => (
-              <div key={item.id} className="card">
-                <input className="input" value={item.name} onChange={e=>updateItem(activeTab, idx, 'name', e.target.value)} placeholder="Name" />
-                <input className="input" value={item.image} onChange={e=>updateItem(activeTab, idx, 'image', e.target.value)} placeholder="Image URL" />
-                <button className="btn btn-danger" onClick={()=>removeItem(activeTab, idx)}>Delete</button>
-              </div>
-            ))}
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><h2>Manager</h2><button className="btn btn-primary" onClick={()=>addItem(activeTab)}>+ Add</button></div>
+            {cfg[activeTab]?.items.map((item:any,i:number)=>(<div key={i} className="card"><input className="input" value={item.name} onChange={e=>updateItem(activeTab,i,'name',e.target.value)}/><button className="btn btn-danger" onClick={()=>removeItem(activeTab,i)}>Del</button></div>))}
           </div>
         )}
 
-        {/* 📸 PHOTOBOX TAB (NEW INTEGRATION) */}
+        {/* --- FITUR LAMA: TEMPLATE MANAGER --- */}
+        {activeTab === 'templates' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:20}}>
+              <h2>🎨 Old Template Manager</h2>
+              <label className="btn btn-success" style={{cursor:'pointer'}}>{uploadingTemplate?"⏳":"+ Upload PNG"}<input type="file" hidden onChange={handleTemplateUpload}/></label>
+            </div>
+            <div className="grid-cards">
+              {templates.map(t => (
+                <div key={t.id} className="card">
+                  <img src={t.imageUrl} style={{width:'100%',height:200,objectFit:'contain',background:'#000'}}/>
+                  <div style={{marginTop:10,display:'flex',gap:5}}>
+                    <button className="btn btn-primary" style={{flex:1}} onClick={()=>setEditingTemplate(t)}>Edit Slots</button>
+                    <button className="btn btn-danger" onClick={()=>deleteItem('template',t.id)}>🗑️</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {editingTemplate && (
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+                <div style={{background:'#1e293b',padding:20,borderRadius:12,width:'90%',maxWidth:1000,maxHeight:'90vh',overflow:'auto'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:15}}><h3 style={{color:'white',margin:0}}>Editor Slot</h3><button onClick={()=>setEditorMode(editorMode==='visual'?'manual':'visual')} className="btn btn-primary">Switch Mode</button></div>
+                  {editorMode==='visual' ? 
+                    <div style={{background:'#000',display:'flex',justifyContent:'center'}}><canvas ref={canvasRef} width={editingTemplate.canvasWidth*SCALE} height={editingTemplate.canvasHeight*SCALE} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} style={{cursor:isDragging?'grabbing':isResizing?'nwse-resize':'grab',maxWidth:'100%'}}/></div> 
+                    : 
+                    <div className="grid-cards">{editingTemplate.slots.map((s,i)=>(<div key={i} className="card">Slot {i+1}<input type="number" value={s.x} onChange={e=>{const ns=[...editingTemplate.slots];ns[i].x=parseInt(e.target.value);setEditingTemplate({...editingTemplate,slots:ns})}} className="input"/></div>))}</div>
+                  }
+                  <div style={{marginTop:15,display:'flex',gap:10}}>
+                    <button className="btn btn-success" style={{flex:1}} onClick={()=>setDoc(doc(db, "photobox_templates", editingTemplate.id), { slots: editingTemplate.slots }, { merge: true }).then(() => { alert("✅ Saved!"); setEditingTemplate(null); })}>Simpan</button>
+                    <button className="btn btn-danger" onClick={()=>setEditingTemplate(null)}>Batal</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* --- FITUR BARU: PHOTOBOX PRO --- */}
         {activeTab === 'photobox' && (
           <div>
-            <h2>📸 Photobox Management</h2>
-            
-            {/* SUB-TABS */}
+            <h2>📸 Photobox PRO Manager</h2>
             <div className="sub-nav">
               <button className={photoboxTab==='frames'?'active':''} onClick={()=>setPhotoboxTab('frames')}>🖼️ Frames</button>
               <button className={photoboxTab==='stickers'?'active':''} onClick={()=>setPhotoboxTab('stickers')}>✨ Stickers</button>
               <button className={photoboxTab==='raw'?'active':''} onClick={()=>setPhotoboxTab('raw')}>🎞️ Raw Photos</button>
-              <button className={photoboxTab==='final'?'active':''} onClick={()=>setPhotoboxTab('final')}>🎨 Final Designs</button>
+              <button className={photoboxTab==='final'?'active':''} onClick={()=>setPhotoboxTab('final')}>🎨 Final Results</button>
             </div>
 
-            {/* 1. FRAMES */}
             {photoboxTab === 'frames' && (
               <div>
-                <label className="btn btn-primary" style={{display:'inline-block', marginBottom:20}}>
-                  {uploadingFrame ? '⏳ Uploading...' : '➕ Upload Frame (PNG)'}
-                  <input type="file" accept="image/*" hidden onChange={uploadFrame} disabled={uploadingFrame} />
-                </label>
-                <div className="grid-cards">
-                  {cfg.photobox?.frames?.map(f => (
-                    <div key={f.id} className="card" style={{textAlign:'center'}}>
-                      <div style={{height:150, background: f.type==='color'?f.color:`url(${f.imageUrl}) center/contain no-repeat`}} />
-                      <p>{f.name}</p>
-                      <button className="btn btn-danger" onClick={()=>deleteFrame(f.id)}>Delete</button>
-                    </div>
-                  ))}
-                </div>
+                <label className="btn btn-primary" style={{display:'inline-block',marginBottom:20}}>{uploadingFrame?"⏳":"+ Upload Frame"}<input type="file" hidden onChange={uploadFrame}/></label>
+                <div className="grid-cards">{cfg.photobox?.frames?.map(f=>(<div key={f.id} className="card"><div style={{height:150,background:`url(${f.imageUrl}) center/contain no-repeat`}}/><p>{f.name}</p><button className="btn btn-danger" onClick={()=>deleteItem('frame',f.id)}>Del</button></div>))}</div>
               </div>
             )}
-
-            {/* 2. STICKERS */}
             {photoboxTab === 'stickers' && (
               <div>
-                <label className="btn btn-primary" style={{display:'inline-block', marginBottom:20}}>
-                  {uploadingSticker ? '⏳ Uploading...' : '➕ Upload Sticker (PNG)'}
-                  <input type="file" accept="image/*" hidden onChange={uploadSticker} disabled={uploadingSticker} />
-                </label>
-                <div className="grid-cards">
-                  {cfg.photobox?.stickers?.map(s => (
-                    <div key={s.id} className="card" style={{textAlign:'center'}}>
-                      <img src={s.imageUrl} style={{width:80, height:80, objectFit:'contain'}} />
-                      <p>{s.name}</p>
-                      <button className="btn btn-danger" onClick={()=>deleteSticker(s.id)}>Delete</button>
-                    </div>
-                  ))}
-                </div>
+                <label className="btn btn-primary" style={{display:'inline-block',marginBottom:20}}>{uploadingSticker?"⏳":"+ Upload Sticker"}<input type="file" hidden onChange={uploadSticker}/></label>
+                <div className="grid-cards">{stickers.map(s=>(<div key={s.id} className="card"><img src={s.imageUrl} style={{width:80,height:80,objectFit:'contain'}}/><button className="btn btn-danger" onClick={()=>deleteItem('sticker',s.id)}>Del</button></div>))}</div>
               </div>
             )}
-
-            {/* 3. RAW PHOTOS */}
-            {photoboxTab === 'raw' && (
-              <div className="grid-cards">
-                {rawPhotos.map(p => (
-                  <div key={p.id} className="card">
-                    <img src={p.url} style={{width:'100%', borderRadius:8}} />
-                    <p style={{fontSize:12, color:'#94a3b8'}}>{new Date(p.createdAt).toLocaleString()}</p>
-                    <a href={p.url} target="_blank" className="btn btn-primary" style={{display:'block', textAlign:'center', marginTop:10, textDecoration:'none'}}>View</a>
-                    <button className="btn btn-danger" style={{width:'100%', marginTop:5}} onClick={()=>deletePhoto('photobox_raw', p.id, p.url)}>Delete</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 4. FINAL DESIGNS */}
-            {photoboxTab === 'final' && (
-              <div className="grid-cards">
-                {finalDesigns.map(d => (
-                  <div key={d.id} className="card" style={{border:'2px solid #10b981'}}>
-                    <img src={d.url} style={{width:'100%', borderRadius:8}} />
-                    <p style={{fontSize:12, color:'#94a3b8'}}>{new Date(d.createdAt).toLocaleString()}</p>
-                    <div style={{display:'flex', gap:5, marginTop:10}}>
-                      <a href={d.url} download className="btn btn-primary" style={{flex:1, textAlign:'center', textDecoration:'none'}}>⬇️</a>
-                      <button className="btn btn-danger" onClick={()=>deletePhoto('photobox_final', d.id, d.url)}>🗑️</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            {photoboxTab === 'raw' && <div className="grid-cards">{rawPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%',borderRadius:8}}/><a href={p.url} target="_blank" className="btn btn-primary" style={{marginTop:10,display:'block',textAlign:'center'}}>View</a><button className="btn btn-danger" style={{width:'100%',marginTop:5}} onClick={()=>deleteItem('raw',p.id,p.url)}>Del</button></div>))}</div>}
+            
+            {/* ✅ FIX DI SINI: Gunakan <a> untuk download dengan benar */}
+            {photoboxTab === 'final' && <div className="grid-cards">{finalDesigns.map(d=>(<div key={d.id} className="card" style={{border:'2px solid #10b981'}}><img src={d.url} style={{width:'100%',borderRadius:8}}/><a href={d.url} download className="btn btn-success" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}}>⬇️ Download</a><button className="btn btn-danger" style={{width:'100%',marginTop:5}} onClick={()=>deleteItem('final',d.id,d.url)}>Del</button></div>))}</div>}
           </div>
         )}
 
+        {/* --- FITUR LAMA: GALLERY --- */}
+        {activeTab === 'gallery' && (
+          <div><h2>Gallery Lama</h2><div className="grid-cards">{oldUserPhotos.map(p=>(<div key={p.id} className="card"><img src={p.url} style={{width:'100%'}}/><a href={p.url} target="_blank" style={{color:'#3b82f6'}}>Open</a></div>))}</div>
+        )}
+
         {activeTab === 'tools' && (
-          <div>
-            <h2>Tools</h2>
-            <button className="btn btn-danger" onClick={() => { if(confirm("Reset data?")) { resetConfig(); window.location.reload(); } }}>Factory Reset Config</button>
-          </div>
+          <div><h2>Tools</h2><button className="btn btn-danger" onClick={()=>{if(confirm("Reset?")){resetConfig();window.location.reload();}}}>Reset Config</button></div>
         )}
       </div>
     </div>
