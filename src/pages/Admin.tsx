@@ -1,11 +1,11 @@
 import { db } from "../firebase"; 
 import { doc, setDoc } from "firebase/firestore"; 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { ContentConfig, Place, Outfit } from "../lib/types";
 import { loadConfig, saveConfig, resetConfig, clearLogs } from "../lib/storage";
 import { logEvent } from "../lib/activity";
 
-// ✅ TAMBAHAN: Photo Template Types
+// ✅ Photo Template Types
 type PhotoSlot = {
   x: number;
   y: number;
@@ -45,15 +45,144 @@ export function Admin() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
   const [userPhotos, setUserPhotos] = useState<any[]>([]);
   
-  // ✅ TAMBAHAN: Template States
+  // ✅ TEMPLATE STATES
   const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PhotoTemplate | null>(null);
+
+  // ✅ VISUAL EDITOR STATES (BARU)
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [editorMode, setEditorMode] = useState<'visual' | 'manual'>('visual');
+  
+  // Scale factor biar canvas muat di modal (0.35 = 35% ukuran asli)
+  const SCALE = 0.35; 
 
   useEffect(() => {
     document.title = "Admin — Hangout Card";
   }, []);
 
+  // --- VISUAL EDITOR LOGIC (CANVAS DRAWING) ---
+  useEffect(() => {
+    if (!editingTemplate || !canvasRef.current || editorMode !== 'visual') return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // 1. Draw Template Image
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // 2. Draw Slots
+      editingTemplate.slots.forEach((slot, index) => {
+        const isSelected = selectedSlot === index;
+        
+        // Kotak Slot
+        ctx.strokeStyle = isSelected ? '#10b981' : '#3b82f6';
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.strokeRect(slot.x * SCALE, slot.y * SCALE, slot.width * SCALE, slot.height * SCALE);
+        
+        // Fill Transparan
+        ctx.fillStyle = isSelected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+        ctx.fillRect(slot.x * SCALE, slot.y * SCALE, slot.width * SCALE, slot.height * SCALE);
+        
+        // Nomor Slot
+        ctx.fillStyle = isSelected ? '#10b981' : '#3b82f6';
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText(`${index + 1}`, slot.x * SCALE + 10, slot.y * SCALE + 30);
+        
+        // Resize Handle (Pojok Kanan Bawah)
+        if (isSelected) {
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(
+            (slot.x + slot.width) * SCALE - 10,
+            (slot.y + slot.height) * SCALE - 10,
+            20, 20
+          );
+        }
+      });
+    };
+    img.src = editingTemplate.imageUrl;
+  }, [editingTemplate, selectedSlot, editorMode]);
+
+  // --- MOUSE HANDLERS FOR CANVAS ---
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!editingTemplate) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) / SCALE;
+    const mouseY = (e.clientY - rect.top) / SCALE;
+
+    // 1. Cek Resize Handle dulu (Priority)
+    if (selectedSlot !== null) {
+      const slot = editingTemplate.slots[selectedSlot];
+      const handleX = slot.x + slot.width;
+      const handleY = slot.y + slot.height;
+      
+      // Hit area 25px
+      if (Math.abs(mouseX - handleX) < 25 && Math.abs(mouseY - handleY) < 25) {
+        setIsResizing(true);
+        setDragStart({ x: mouseX, y: mouseY });
+        return;
+      }
+    }
+
+    // 2. Cek Klik Slot Body
+    for (let i = editingTemplate.slots.length - 1; i >= 0; i--) {
+      const slot = editingTemplate.slots[i];
+      if (mouseX >= slot.x && mouseX <= slot.x + slot.width && mouseY >= slot.y && mouseY <= slot.y + slot.height) {
+        setSelectedSlot(i);
+        setIsDragging(true);
+        setDragStart({ x: mouseX - slot.x, y: mouseY - slot.y });
+        return;
+      }
+    }
+
+    // Klik di tempat kosong -> Deselect
+    setSelectedSlot(null);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if ((!isDragging && !isResizing) || !editingTemplate || selectedSlot === null) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) / SCALE;
+    const mouseY = (e.clientY - rect.top) / SCALE;
+
+    const newSlots = [...editingTemplate.slots];
+    const slot = newSlots[selectedSlot];
+
+    if (isResizing) {
+      // Logic Resize
+      slot.width = Math.max(50, mouseX - slot.x);
+      slot.height = Math.max(50, mouseY - slot.y);
+    } else if (isDragging) {
+      // Logic Move (Drag)
+      slot.x = mouseX - dragStart.x;
+      slot.y = mouseY - dragStart.y;
+    }
+
+    setEditingTemplate({ ...editingTemplate, slots: newSlots });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
+
+  // --- AUTH & CONFIG LOGIC ---
   const verify = () => {
     const good = pass === (cfg.admin?.passcode || ""); 
     setOk(good);
@@ -84,7 +213,7 @@ export function Admin() {
     }
   };
 
-  // --- GALLERY LISTENER ---
+  // --- LISTENERS ---
   useEffect(() => {
     let unsubscribe: any;
     const startListener = async () => {
@@ -92,10 +221,7 @@ export function Admin() {
       const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
       const q = query(collection(db, "secret_photos"), orderBy("createdAt", "desc"));
       unsubscribe = onSnapshot(q, (snapshot) => {
-        const photos = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        const photos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setUserPhotos(photos);
       });
     };
@@ -103,7 +229,6 @@ export function Admin() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
-  // ✅ TAMBAHAN: TEMPLATES LISTENER
   useEffect(() => {
     let unsubscribe: any;
     const startListener = async () => {
@@ -111,10 +236,7 @@ export function Admin() {
       const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
       const q = query(collection(db, "photobox_templates"), orderBy("createdAt", "desc"));
       unsubscribe = onSnapshot(q, (snapshot) => {
-        const temps = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as PhotoTemplate[];
+        const temps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as PhotoTemplate[];
         setTemplates(temps);
       });
     };
@@ -122,18 +244,14 @@ export function Admin() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
-  // ✅ TAMBAHAN: TEMPLATE FUNCTIONS
+  // --- TEMPLATE FUNCTIONS ---
   const uploadTemplateToCloudinary = async (file: File): Promise<string> => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("upload_preset", "keyysi_sigma"); // ⚠️ GANTI SESUAI PRESET LO
-    formData.append("cloud_name", "dkfhlusok");       // ⚠️ GANTI SESUAI CLOUD NAME LO
+    formData.append("upload_preset", "keyysi_sigma");
+    formData.append("cloud_name", "dkfhlusok"); 
 
-    const response = await fetch(
-      "https://api.cloudinary.com/v1_1/dkfhlusok/image/upload",
-      { method: "POST", body: formData }
-    );
-
+    const response = await fetch("https://api.cloudinary.com/v1_1/dkfhlusok/image/upload", { method: "POST", body: formData });
     if (!response.ok) throw new Error("Upload failed");
     const data = await response.json();
     return data.secure_url;
@@ -142,52 +260,32 @@ export function Admin() {
   const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    if (!file.type.includes('image/png')) {
-      alert("❌ Hanya file PNG yang diperbolehkan!");
-      return;
-    }
+    if (!file.type.includes('image/png')) { alert("❌ Hanya file PNG yang diperbolehkan!"); return; }
 
     const name = prompt("📝 Nama template (contoh: Valentine Frame):");
     if (!name) return;
-
     const photoCountStr = prompt("📸 Jumlah foto (1-4):");
     const photoCount = parseInt(photoCountStr || "1");
-    
-    if (photoCount < 1 || photoCount > 4) {
-      alert("❌ Jumlah foto harus 1-4!");
-      return;
-    }
+    if (photoCount < 1 || photoCount > 4) { alert("❌ Jumlah foto harus 1-4!"); return; }
 
     setUploadingTemplate(true);
     try {
       const imageUrl = await uploadTemplateToCloudinary(file);
-      
       const defaultSlots: PhotoSlot[] = [];
+      // Default: Slot vertikal sederhana
       for (let i = 0; i < photoCount; i++) {
-        defaultSlots.push({
-          x: 50,
-          y: 50 + (i * 300),
-          width: 400,
-          height: 250
-        });
+        defaultSlots.push({ x: 50, y: 50 + (i * 300), width: 400, height: 250 });
       }
       
       const { doc, setDoc } = await import("firebase/firestore");
       const templateId = Date.now().toString();
       const newTemplate: PhotoTemplate = {
-        id: templateId,
-        name,
-        imageUrl,
-        photoCount,
-        slots: defaultSlots,
-        canvasWidth: 1080,
-        canvasHeight: 1350,
-        createdAt: new Date().toISOString()
+        id: templateId, name, imageUrl, photoCount, slots: defaultSlots,
+        canvasWidth: 707, canvasHeight: 2000, createdAt: new Date().toISOString()
       };
 
       await setDoc(doc(db, "photobox_templates", templateId), newTemplate);
-      alert("✅ Template berhasil di-upload! Sekarang atur posisi slot foto.");
+      alert("✅ Template berhasil di-upload!");
     } catch (err) {
       console.error(err);
       alert("❌ Gagal upload template");
@@ -201,42 +299,31 @@ export function Admin() {
       const { doc, deleteDoc } = await import("firebase/firestore");
       await deleteDoc(doc(db, "photobox_templates", id));
       alert("✅ Template berhasil dihapus!");
-    } catch (err) {
-      alert("❌ Gagal hapus template");
-    }
+    } catch (err) { alert("❌ Gagal hapus template"); }
   };
 
   const saveSlotChanges = async (template: PhotoTemplate) => {
     try {
       const { doc, updateDoc } = await import("firebase/firestore");
-      await updateDoc(doc(db, "photobox_templates", template.id), {
-        slots: template.slots
-      });
+      await updateDoc(doc(db, "photobox_templates", template.id), { slots: template.slots });
       alert("✅ Slot posisi berhasil disimpan!");
       setEditingTemplate(null);
-    } catch (err) {
-      alert("❌ Gagal simpan perubahan");
-    }
+    } catch (err) { alert("❌ Gagal simpan perubahan"); }
   };
 
-  // --- CRUD HELPERS ---
+  // --- CRUD HELPERS (Places & Outfits) ---
   const updatePlace = (idx: number, field: keyof Place, val: any) => {
     const newItems = [...cfg.places.items];
     newItems[idx] = { ...newItems[idx], [field]: val };
     updateConfig({ ...cfg, places: { ...cfg.places, items: newItems } });
   };
-
   const updateOutfit = (idx: number, field: keyof Outfit, val: any) => {
     const currentItems = cfg.outfits?.items || [];
     const newItems = [...currentItems];
     newItems[idx] = { ...newItems[idx], [field]: val };
-    const newConfigData = { 
-      ...cfg, 
-      outfits: { ...(cfg.outfits || { headline: "Choose Outfit", subtitle: "Pick your style" }), items: newItems } 
-    };
+    const newConfigData = { ...cfg, outfits: { ...(cfg.outfits || { headline: "", subtitle: "" }), items: newItems } };
     updateConfig(newConfigData); 
   };
-
   const addColorToPalette = (idx: number, color: string) => {
     const items = [...(cfg.outfits?.items || [])];
     const currentPalette = items[idx].palette || [];
@@ -244,7 +331,6 @@ export function Admin() {
     items[idx].palette = [...currentPalette, color];
     updateConfig({ ...cfg, outfits: { ...(cfg.outfits || { headline: "", subtitle: "" }), items } });
   };
-
   const removeColorFromPalette = (oIdx: number, cIdx: number) => {
     const items = [...(cfg.outfits?.items || [])];
     const newPalette = [...(items[oIdx].palette || [])];
@@ -252,7 +338,6 @@ export function Admin() {
     items[oIdx].palette = newPalette;
     updateConfig({ ...cfg, outfits: { ...(cfg.outfits || { headline: "", subtitle: "" }), items } });
   };
-
   const updateSwot = (idx: number, type: 'plus' | 'minus', val: string) => {
     const current = parseSwot(cfg.places.items[idx].swot);
     const newPlus = type === 'plus' ? val : current.plus;
@@ -260,69 +345,45 @@ export function Admin() {
     const combined = `${newPlus.split('\n').filter(l=>l.trim()).map(l=>`+ ${l}`).join('\n')}\n${newMinus.split('\n').filter(l=>l.trim()).map(l=>`- ${l}`).join('\n')}`.trim();
     updatePlace(idx, 'swot', combined);
   };
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const MAX_SIZE = 1200; 
-        if (width > height) {
-          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
-        } else {
-          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
-        }
-        canvas.width = width;
-        canvas.height = height;
+        let width = img.width; let height = img.height; const MAX_SIZE = 1200; 
+        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+        canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d', { alpha: false });
         ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        callback(dataUrl);
+        callback(canvas.toDataURL('image/jpeg', 0.7));
       };
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
-
   const toggleTag = (idx: number, tag: string) => {
     const newItems = [...cfg.places.items];
     const currentTags = newItems[idx].tags || [];
-    if (currentTags.includes(tag)) {
-      newItems[idx].tags = currentTags.filter(t => t !== tag);
-    } else {
-      const cleanedTags = currentTags.filter(t => !['dinner', 'snack', 'dessert'].includes(t));
-      newItems[idx].tags = [...cleanedTags, tag];
-    }
+    if (currentTags.includes(tag)) { newItems[idx].tags = currentTags.filter(t => t !== tag); } 
+    else { const cleanedTags = currentTags.filter(t => !['dinner', 'snack', 'dessert'].includes(t)); newItems[idx].tags = [...cleanedTags, tag]; }
     updateConfig({ ...cfg, places: { ...cfg.places, items: newItems } });
   };
-
   const addPlace = () => {
     const newItem: Place = { id: randomId("place"), name: "New Place", description: "", image: "", locationUrl: "", tags: ["dinner"], budget: "", openHours: "", swot: "" };
     updateConfig({ ...cfg, places: { ...cfg.places, items: [newItem, ...cfg.places.items] } });
   };
-
   const addOutfit = () => {
     const newItem: Outfit = { id: randomId("outfit"), name: "New Style", description: "", image: "", style: "casual", palette: [] };
     updateConfig({ ...cfg, outfits: { ...(cfg.outfits || { headline: "Outfit", subtitle: "Style" }), items: [newItem, ...(cfg.outfits?.items || [])] } });
   };
-
   const removeItem = (type: 'place' | 'outfit', idx: number) => {
     if(!confirm("Yakin hapus?")) return;
-    if (type === 'place') {
-      const newItems = [...cfg.places.items];
-      newItems.splice(idx, 1);
-      updateConfig({ ...cfg, places: { ...cfg.places, items: newItems } });
-    } else {
-      const newItems = [...(cfg.outfits?.items || [])];
-      newItems.splice(idx, 1);
-      updateConfig({ ...cfg, outfits: { ...cfg.outfits!, items: newItems } });
-    }
+    if (type === 'place') { const newItems = [...cfg.places.items]; newItems.splice(idx, 1); updateConfig({ ...cfg, places: { ...cfg.places, items: newItems } }); } 
+    else { const newItems = [...(cfg.outfits?.items || [])]; newItems.splice(idx, 1); updateConfig({ ...cfg, outfits: { ...cfg.outfits!, items: newItems } }); }
   };
 
   if (!ok) {
@@ -504,13 +565,7 @@ export function Admin() {
               <div className="section-title" style={{marginBottom:0, border:0}}>🎨 Photobox Template Manager</div>
               <label className="btn btn-success" style={{cursor:'pointer'}}>
                 {uploadingTemplate ? "⏳ Uploading..." : "+ Upload Template"}
-                <input 
-                  type="file" 
-                  accept="image/png" 
-                  style={{display:'none'}} 
-                  onChange={handleTemplateUpload}
-                  disabled={uploadingTemplate}
-                />
+                <input type="file" accept="image/png" style={{display:'none'}} onChange={handleTemplateUpload} disabled={uploadingTemplate} />
               </label>
             </div>
 
@@ -518,197 +573,109 @@ export function Admin() {
               <h3 style={{fontSize:14, color:'#94a3b8', marginTop:0}}>📋 PANDUAN UPLOAD TEMPLATE:</h3>
               <ul style={{color:'#cbd5e1', fontSize:13, lineHeight:1.8}}>
                 <li>✅ Format: <b>PNG dengan background TRANSPARAN</b></li>
-                <li>📐 Size recommended: <b>1080x1350px</b> (Instagram Portrait)</li>
-                <li>🎨 Design frame/border di Canva, export as PNG</li>
-                <li>📍 Bagian tempat foto harus transparan (nanti bisa atur koordinat slot)</li>
-                <li>💡 Bisa bikin banyak template, user nanti pilih sendiri</li>
-                <li>🔢 Tentukan jumlah foto (1-4), nanti atur posisi slot foto di editor</li>
+                <li>📐 Size recommended: <b>707x2000px</b> (Photostrip Panjang)</li>
+                <li>📍 Edit slot: Sekarang bisa <b>Drag & Resize</b> visual!</li>
               </ul>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-              {templates.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b', gridColumn: '1 / -1' }}>
-                  🎨 Belum ada template. Upload template pertama lo!
-                </div>
-              ) : (
-                templates.map((template) => (
-                  <div key={template.id} className="card">
-                    <div style={{
-                      width: '100%',
-                      height: 350,
-                      background: 'repeating-conic-gradient(#0f172a 0% 25%, #1e293b 0% 50%) 50% / 20px 20px',
-                      borderRadius: 12,
-                      marginBottom: 15,
-                      overflow: 'hidden',
-                      position: 'relative'
-                    }}>
-                      <img 
-                        src={template.imageUrl} 
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
-                        alt={template.name} 
-                      />
-                      
-                      {template.slots.map((slot, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            position: 'absolute',
-                            left: `${(slot.x / template.canvasWidth) * 100}%`,
-                            top: `${(slot.y / template.canvasHeight) * 100}%`,
-                            width: `${(slot.width / template.canvasWidth) * 100}%`,
-                            height: `${(slot.height / template.canvasHeight) * 100}%`,
-                            border: '2px dashed #3b82f6',
-                            background: 'rgba(59, 130, 246, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 12,
-                            color: '#3b82f6',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          SLOT {idx + 1}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div style={{ fontSize: '16px', color: '#fff', fontWeight: 'bold', marginBottom: 8 }}>
-                      {template.name}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: 12 }}>
-                      📸 {template.photoCount} foto | 📐 {template.canvasWidth}x{template.canvasHeight}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#64748b', marginBottom: 15 }}>
-                      📅 {new Date(template.createdAt).toLocaleDateString('id-ID')}
-                    </div>
-
-                    <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                      <button 
-                        className="btn btn-primary"
-                        style={{flex:1, fontSize:12, padding:'10px'}}
-                        onClick={() => setEditingTemplate(template)}
-                      >
-                        ⚙️ Edit Slots
-                      </button>
-                      <a 
-                        href={template.imageUrl} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="btn btn-secondary"
-                        style={{flex:1, textAlign:'center', textDecoration:'none', fontSize:12, padding:'10px'}}
-                      >
-                        👁️ Preview
-                      </a>
-                      <button 
-                        className="btn btn-danger" 
-                        onClick={() => deleteTemplate(template.id)}
-                        style={{fontSize:12, padding:'10px 16px'}}
-                      >
-                        🗑️
-                      </button>
-                    </div>
+              {templates.map((template) => (
+                <div key={template.id} className="card">
+                  <div style={{ width: '100%', height: 350, background: 'repeating-conic-gradient(#0f172a 0% 25%, #1e293b 0% 50%) 50% / 20px 20px', borderRadius: 12, marginBottom: 15, overflow: 'hidden', position: 'relative' }}>
+                    <img src={template.imageUrl} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt={template.name} />
+                    {template.slots.map((slot, idx) => (
+                      <div key={idx} style={{ position: 'absolute', left: `${(slot.x / template.canvasWidth) * 100}%`, top: `${(slot.y / template.canvasHeight) * 100}%`, width: `${(slot.width / template.canvasWidth) * 100}%`, height: `${(slot.height / template.canvasHeight) * 100}%`, border: '2px dashed #3b82f6', background: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#3b82f6', fontWeight: 'bold' }}>
+                        SLOT {idx + 1}
+                      </div>
+                    ))}
                   </div>
-                ))
-              )}
+                  <div style={{ fontSize: '16px', color: '#fff', fontWeight: 'bold', marginBottom: 8 }}>{template.name}</div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: 12 }}>📸 {template.photoCount} foto | 📐 {template.canvasWidth}x{template.canvasHeight}</div>
+                  <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                    <button className="btn btn-primary" style={{flex:1, fontSize:12}} onClick={() => setEditingTemplate(template)}>⚙️ Edit Slots</button>
+                    <button className="btn btn-danger" onClick={() => deleteTemplate(template.id)} style={{fontSize:12}}>🗑️</button>
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {/* SLOT EDITOR MODAL */}
+            {/* ✅ VISUAL EDITOR MODAL (CANVAS + MANUAL) */}
             {editingTemplate && (
-              <div style={{
-                position: 'fixed',
-                inset: 0,
-                background: 'rgba(0,0,0,0.9)',
-                zIndex: 9999,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 20
-              }}>
-                <div style={{
-                  background: '#1e293b',
-                  borderRadius: 16,
-                  padding: 30,
-                  maxWidth: 600,
-                  width: '100%',
-                  maxHeight: '90vh',
-                  overflowY: 'auto'
-                }}>
-                  <h2 style={{color:'white', marginTop:0}}>⚙️ Edit Slot Posisi: {editingTemplate.name}</h2>
-                  <p style={{color:'#94a3b8', fontSize:13, marginBottom:20}}>
-                    Canvas size: {editingTemplate.canvasWidth} x {editingTemplate.canvasHeight} pixels
-                  </p>
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <div style={{ background: '#1e293b', borderRadius: 16, padding: 30, maxWidth: 1200, width: '100%', maxHeight: '95vh', overflowY: 'auto' }}>
+                  
+                  {/* HEADER MODAL */}
+                  <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h2 style={{ color: 'white', marginTop: 0, marginBottom: 8 }}>⚙️ Edit Slots: {editingTemplate.name}</h2>
+                      <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>Canvas: {editingTemplate.canvasWidth} x {editingTemplate.canvasHeight} px</p>
+                    </div>
+                    <button onClick={() => setEditorMode(editorMode === 'visual' ? 'manual' : 'visual')} style={{ padding: '8px 16px', background: editorMode === 'visual' ? '#3b82f6' : '#64748b', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      {editorMode === 'visual' ? '🎨 Visual Mode' : '🔢 Manual Mode'}
+                    </button>
+                  </div>
 
-                  {editingTemplate.slots.map((slot, idx) => (
-                    <div key={idx} className="slot-editor">
-                      <h4 style={{color:'#3b82f6', marginTop:0}}>📸 Slot {idx + 1}</h4>
-                      <div className="slot-input-group">
-                        <div>
-                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>X (px)</label>
-                          <input 
-                            type="number"
-                            value={slot.x}
-                            onChange={(e) => {
-                              const newSlots = [...editingTemplate.slots];
-                              newSlots[idx].x = parseInt(e.target.value) || 0;
-                              setEditingTemplate({...editingTemplate, slots: newSlots});
-                            }}
-                          />
+                  {editorMode === 'visual' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 30 }}>
+                      {/* KIRI: CANVAS */}
+                      <div>
+                        <div style={{ background: '#0f172a', padding: 15, borderRadius: 12, marginBottom: 15 }}>
+                          <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>💡 Klik slot untuk select → Drag untuk geser → Tarik pojok kanan bawah untuk resize</p>
                         </div>
-                        <div>
-                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Y (px)</label>
-                          <input 
-                            type="number"
-                            value={slot.y}
-                            onChange={(e) => {
-                              const newSlots = [...editingTemplate.slots];
-                              newSlots[idx].y = parseInt(e.target.value) || 0;
-                              setEditingTemplate({...editingTemplate, slots: newSlots});
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Width (px)</label>
-                          <input 
-                            type="number"
-                            value={slot.width}
-                            onChange={(e) => {
-                              const newSlots = [...editingTemplate.slots];
-                              newSlots[idx].width = parseInt(e.target.value) || 0;
-                              setEditingTemplate({...editingTemplate, slots: newSlots});
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{color:'#94a3b8', fontSize:11, display:'block', marginBottom:4}}>Height (px)</label>
-                          <input 
-                            type="number"
-                            value={slot.height}
-                            onChange={(e) => {
-                              const newSlots = [...editingTemplate.slots];
-                              newSlots[idx].height = parseInt(e.target.value) || 0;
-                              setEditingTemplate({...editingTemplate, slots: newSlots});
-                            }}
+                        <div style={{ border: '2px solid #334155', borderRadius: 12, overflow: 'hidden', background: '#000', display: 'flex', justifyContent: 'center' }}>
+                          <canvas 
+                            ref={canvasRef} 
+                            width={editingTemplate.canvasWidth * SCALE} 
+                            height={editingTemplate.canvasHeight * SCALE}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUp}
+                            onMouseLeave={handleMouseUp}
+                            style={{ cursor: isDragging ? 'grabbing' : isResizing ? 'nwse-resize' : 'grab', maxWidth: '100%' }} 
                           />
                         </div>
                       </div>
-                    </div>
-                  ))}
 
-                  <div style={{display:'flex', gap:10, marginTop:20}}>
-                    <button 
-                      className="btn btn-success" 
-                      style={{flex:1}}
-                      onClick={() => saveSlotChanges(editingTemplate)}
-                    >
-                      ✅ Simpan Perubahan
-                    </button>
-                    <button 
-                      className="btn btn-secondary" 
-                      onClick={() => setEditingTemplate(null)}
-                    >
-                      ❌ Batal
-                    </button>
+                      {/* KANAN: LIST SLOT INFO */}
+                      <div style={{ background: '#0f172a', padding: 15, borderRadius: 12, height: 'fit-content' }}>
+                        <h3 style={{ color: 'white', marginTop: 0, fontSize: 16 }}>📸 Slots ({editingTemplate.slots.length})</h3>
+                        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                          {editingTemplate.slots.map((slot, idx) => (
+                            <div key={idx} onClick={() => setSelectedSlot(idx)} style={{ background: selectedSlot === idx ? '#3b82f6' : '#1e293b', padding: 12, borderRadius: 8, marginBottom: 8, cursor: 'pointer', border: selectedSlot === idx ? '2px solid #60a5fa' : '2px solid transparent' }}>
+                              <div style={{ color: 'white', fontWeight: 600, marginBottom: 6, fontSize: 14 }}>Slot {idx + 1}</div>
+                              <div style={{ color: '#94a3b8', fontSize: 11 }}>X: {Math.round(slot.x)} | Y: {Math.round(slot.y)}<br />W: {Math.round(slot.width)} | H: {Math.round(slot.height)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // MODE MANUAL (INPUT ANGKA)
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 15 }}>
+                      {editingTemplate.slots.map((slot, idx) => (
+                        <div key={idx} style={{ background: '#0f172a', padding: 15, borderRadius: 12 }}>
+                          <h4 style={{ color: '#3b82f6', marginTop: 0 }}>📸 Slot {idx + 1}</h4>
+                          <div className="slot-input-group">
+                            {['x', 'y', 'width', 'height'].map(field => (
+                              <div key={field}>
+                                <label style={{ color: '#94a3b8', fontSize: 10, textTransform: 'uppercase' }}>{field}</label>
+                                <input type="number" value={(slot as any)[field]} onChange={(e) => {
+                                   const newSlots = [...editingTemplate.slots];
+                                   (newSlots[idx] as any)[field] = parseInt(e.target.value) || 0;
+                                   setEditingTemplate({...editingTemplate, slots: newSlots});
+                                }} style={{ width: '100%' }} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ACTION BUTTONS */}
+                  <div style={{ display: 'flex', gap: 12, marginTop: 25, paddingTop: 20, borderTop: '1px solid #334155' }}>
+                    <button onClick={() => saveSlotChanges(editingTemplate)} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>✅ Simpan Perubahan</button>
+                    <button onClick={() => setEditingTemplate(null)} style={{ padding: '14px 24px', background: '#475569', color: 'white', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>❌ Batal</button>
                   </div>
                 </div>
               </div>
@@ -721,28 +688,13 @@ export function Admin() {
             <div className="section-title">Hasil Foto Photobox</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
               {userPhotos.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b', gridColumn: '1 / -1' }}>
-                  📸 Belum ada foto yang masuk dari Keysia.
-                </div>
+                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b', gridColumn: '1 / -1' }}>📸 Belum ada foto yang masuk dari Keysia.</div>
               ) : (
                 userPhotos.map((photo) => (
                   <div key={photo.id} className="card" style={{ padding: '10px' }}>
-                    <img 
-                      src={photo.url} 
-                      style={{ width: '100%', borderRadius: '8px', marginBottom: '10px', border: '1px solid #334155' }} 
-                      alt="User Capture" 
-                    />
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                      📅 {new Date(photo.createdAt).toLocaleString('id-ID')}
-                    </div>
-                    <a 
-                      href={photo.url} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      style={{ color: '#3b82f6', fontSize: '12px', textDecoration: 'none', display: 'block', marginTop: '8px', fontWeight: 'bold' }}
-                    >
-                      Buka Full Image ↗
-                    </a>
+                    <img src={photo.url} style={{ width: '100%', borderRadius: '8px', marginBottom: '10px', border: '1px solid #334155' }} alt="User Capture" />
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>📅 {new Date(photo.createdAt).toLocaleString('id-ID')}</div>
+                    <a href={photo.url} target="_blank" rel="noreferrer" style={{ color: '#3b82f6', fontSize: '12px', textDecoration: 'none', display: 'block', marginTop: '8px', fontWeight: 'bold' }}>Buka Full Image ↗</a>
                   </div>
                 ))
               )}
