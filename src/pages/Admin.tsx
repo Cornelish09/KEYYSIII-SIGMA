@@ -22,9 +22,11 @@ export function Admin() {
   const [cfg, setCfg] = useState<ContentConfig>(() => loadConfig());
   const [pass, setPass] = useState("");
   const [ok, setOk] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'tools' | 'gallery'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'tools' | 'gallery' | 'templates'>('general');
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
   const [userPhotos, setUserPhotos] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
 
   useEffect(() => {
     document.title = "Admin — Hangout Card";
