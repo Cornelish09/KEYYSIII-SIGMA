@@ -901,19 +901,38 @@ export function Admin() {
                         borderRadius: 12, 
                         padding: 16,
                         display: 'grid',
-                        gridTemplateColumns: '200px 180px 1fr 220px 40px',
+                        gridTemplateColumns: '100px 100px 180px 1fr 220px 40px',
                         gap: 12,
                         alignItems: 'center'
                       }}
                     >
                       {/* Time Start */}
-                      <input
-                        type="time"
-                        className="input"
-                        style={{ fontSize: 14 }}
-                        value={schedule.timeStart}
-                        onChange={e => updateSchedule(idx, 'timeStart', e.target.value)}
-                      />
+                      <div>
+                        <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                          START
+                        </label>
+                        <input
+                          type="time"
+                          className="input"
+                          style={{ fontSize: 13, padding: 8 }}
+                          value={schedule.timeStart}
+                          onChange={e => updateSchedule(idx, 'timeStart', e.target.value)}
+                        />
+                      </div>
+
+                      {/* Time End */}
+                      <div>
+                        <label style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                          END
+                        </label>
+                        <input
+                          type="time"
+                          className="input"
+                          style={{ fontSize: 13, padding: 8 }}
+                          value={schedule.timeEnd}
+                          onChange={e => updateSchedule(idx, 'timeEnd', e.target.value)}
+                        />
+                      </div>
 
                       {/* Activity Name */}
                       <input
@@ -921,7 +940,7 @@ export function Admin() {
                         placeholder="Activity"
                         value={schedule.activity}
                         onChange={e => updateSchedule(idx, 'activity', e.target.value)}
-                        style={{ textTransform: 'uppercase', fontWeight: 600 }}
+                        style={{ textTransform: 'uppercase', fontWeight: 600, fontSize: 13, padding: 10 }}
                       />
 
                       {/* Description */}
@@ -930,6 +949,7 @@ export function Admin() {
                         placeholder="Deskripsi..."
                         value={schedule.description}
                         onChange={e => updateSchedule(idx, 'description', e.target.value)}
+                        style={{ fontSize: 13, padding: 10 }}
                       />
 
                       {/* Category Dropdown */}
@@ -937,6 +957,7 @@ export function Admin() {
                         className="input"
                         value={schedule.category}
                         onChange={e => updateSchedule(idx, 'category', e.target.value)}
+                        style={{ fontSize: 13, padding: 10 }}
                       >
                         <option value="static">Static (Teks)</option>
                         <option value="dinner">Dinner (Pilihan User)</option>
