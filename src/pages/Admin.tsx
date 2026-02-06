@@ -74,23 +74,35 @@ export function Admin() {
     }
   };
 
-  const fetchPhotos = async () => {
-    try {
-      const { collection, getDocs, query, orderBy } = await import("firebase/firestore");
-      const q = query(collection(db, "photos"), orderBy("createdAt", "desc"));
-      const querySnapshot = await getDocs(q);
-      const photos = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setUserPhotos(photos);
-    } catch (e) {
-      console.error("Gagal ambil foto:", e);
-    }
-  };
-
-  // Jalankan fungsi ini pas tab Gallery diklik
+  // --- LOGIKA REAL-TIME GALLERY ---
   useEffect(() => {
-    if (activeTab === 'gallery') {
-      fetchPhotos();
-    }
+    // Kita panggil library firestore-nya secara dinamis
+    const startListener = async () => {
+      if (activeTab !== 'gallery') return;
+
+      const { collection, query, orderBy, onSnapshot } = await import("firebase/firestore");
+      const q = query(collection(db, "photos"), orderBy("createdAt", "desc"));
+
+      // onSnapshot ini yang bikin foto muncul OTOMATIS tanpa refresh
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const photos = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserPhotos(photos);
+        console.log("Gallery updated!");
+      }, (error) => {
+        console.error("Gagal dengerin foto:", error);
+      });
+
+      return unsubscribe;
+    };
+
+    let unsub: any;
+    startListener().then(u => unsub = u);
+
+    // Bersihin listener pas pindah tab biar gak lemot
+    return () => { if(unsub) unsub(); };
   }, [activeTab]);
 
   // --- CRUD HELPERS ---
