@@ -22,8 +22,9 @@ export function Admin() {
   const [cfg, setCfg] = useState<ContentConfig>(() => loadConfig());
   const [pass, setPass] = useState("");
   const [ok, setOk] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'tools'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'places' | 'outfits' | 'tools' | 'gallery'>('general');
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+  const [userPhotos, setUserPhotos] = useState<any[]>([]);
 
   useEffect(() => {
     document.title = "Admin — Hangout Card";
@@ -72,6 +73,25 @@ export function Admin() {
       alert("Waduh, gagal connect ke Firebase. Cek internet bro!");
     }
   };
+
+  const fetchPhotos = async () => {
+    try {
+      const { collection, getDocs, query, orderBy } = await import("firebase/firestore");
+      const q = query(collection(db, "photos"), orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
+      const photos = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUserPhotos(photos);
+    } catch (e) {
+      console.error("Gagal ambil foto:", e);
+    }
+  };
+
+  // Jalankan fungsi ini pas tab Gallery diklik
+  useEffect(() => {
+    if (activeTab === 'gallery') {
+      fetchPhotos();
+    }
+  }, [activeTab]);
 
   // --- CRUD HELPERS ---
   const updatePlace = (idx: number, field: keyof Place, val: any) => {
@@ -250,6 +270,7 @@ export function Admin() {
         <button className={`nav-btn ${activeTab === 'places' ? 'active' : ''}`} onClick={() => setActiveTab('places')}>📍 Places Manager</button>
         <button className={`nav-btn ${activeTab === 'outfits' ? 'active' : ''}`} onClick={() => setActiveTab('outfits')}>👗 Outfit Manager</button>
         <button className={`nav-btn ${activeTab === 'tools' ? 'active' : ''}`} onClick={() => setActiveTab('tools')}>🔧 Tools</button>
+        <button className={`nav-btn ${activeTab === 'gallery' ? 'active' : ''}`} onClick={() => setActiveTab('gallery')}>📸 User Gallery</button>
       </div>
 
       <div className="main-content">
@@ -448,6 +469,40 @@ export function Admin() {
                    downloadAnchorNode.click();
               }}>Download Backup</button>
               <button className="btn btn-danger" onClick={() => { if(confirm("Reset data ke awal? Semua perubahan lo bakal hilang.")) { resetConfig(); window.location.reload(); } }}>Factory Reset</button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'gallery' && (
+          <div>
+            <div className="section-title">Hasil Foto Photobox</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
+              {userPhotos.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                  📸 Belum ada foto yang masuk dari Keysia.
+                </div>
+              ) : (
+                userPhotos.map((photo) => (
+                  <div key={photo.id} className="card" style={{ padding: '10px' }}>
+                    <img 
+                      src={photo.url} 
+                      style={{ width: '100%', borderRadius: '8px', marginBottom: '10px', border: '1px solid #334155' }} 
+                      alt="User Capture" 
+                    />
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      📅 {new Date(photo.createdAt).toLocaleString('id-ID')}
+                    </div>
+                    <a 
+                      href={photo.url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      style={{ color: '#3b82f6', fontSize: '12px', textDecoration: 'none', display: 'block', marginTop: '8px', fontWeight: 'bold' }}
+                    >
+                      Buka Full Image ↗
+                    </a>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
