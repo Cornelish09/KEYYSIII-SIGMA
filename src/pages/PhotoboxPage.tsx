@@ -378,7 +378,7 @@ const CSS = `
 
   /* ── CAMERA STAGE ── */
   .pb-cam-layout {
-    flex: 1; display: grid; grid-template-columns: 1fr 290px; overflow: hidden;
+    flex: 1; display: grid; grid-template-columns: 1fr 320px; overflow: hidden;
   }
   .pb-cam-main {
     position: relative; background: #000;
@@ -415,7 +415,7 @@ const CSS = `
   }
   .pb-cam-inner {
     position: relative; overflow: hidden;
-    max-height: 100%; max-width: 100%;
+    width: 100%; height: 100%;
   }
   .pb-cam-video {
     width: 100%; height: 100%; object-fit: cover; display: block;
@@ -717,6 +717,7 @@ export function PhotoboxPage() {
 
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const liveCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Load templates
   useEffect(() => {
@@ -734,7 +735,89 @@ export function PhotoboxPage() {
     return () => clearTimeout(t);
   }, [countdown]);
 
-  const templateAspect = selected ? selected.canvasWidth / selected.canvasHeight : 9 / 16;
+  // Live preview canvas — rerenders whenever a new photo is captured
+  useEffect(() => {
+    if (!selected || !liveCanvasRef.current) return;
+    if (stage !== 'camera-capture' && stage !== 'preview') return;
+    const canvas = liveCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Scale to fit sidebar (max 280px wide)
+    const maxW = 280;
+    const scale = maxW / selected.canvasWidth;
+    canvas.width = Math.round(selected.canvasWidth * scale);
+    canvas.height = Math.round(selected.canvasHeight * scale);
+
+    const draw = async () => {
+      // White bg
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw captured photos into their slots
+      for (const photo of photos) {
+        const slot = selected.slots[photo.slotIndex];
+        if (!slot) continue;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise<void>(res => {
+          img.onload = () => {
+            drawCoverFit(
+              ctx, img,
+              slot.x * scale, slot.y * scale,
+              slot.width * scale, slot.height * scale,
+              true
+            );
+            res();
+          };
+          img.onerror = () => res();
+          img.src = photo.dataUrl;
+        });
+      }
+
+      // Highlight next empty slot
+      if (photos.length < selected.photoCount) {
+        const nextSlot = selected.slots[slotIdx];
+        if (nextSlot) {
+          ctx.strokeStyle = 'rgba(129,140,248,0.8)';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([8, 4]);
+          ctx.strokeRect(
+            nextSlot.x * scale, nextSlot.y * scale,
+            nextSlot.width * scale, nextSlot.height * scale
+          );
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(99,102,241,0.08)';
+          ctx.fillRect(
+            nextSlot.x * scale, nextSlot.y * scale,
+            nextSlot.width * scale, nextSlot.height * scale
+          );
+          // Label
+          ctx.font = `bold ${Math.max(12, nextSlot.height * scale * 0.2)}px system-ui`;
+          ctx.fillStyle = 'rgba(129,140,248,0.7)';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            `📸 ${slotIdx + 1}`,
+            (nextSlot.x + nextSlot.width / 2) * scale,
+            (nextSlot.y + nextSlot.height / 2) * scale
+          );
+          ctx.textAlign = 'left';
+        }
+      }
+
+      // Frame on top
+      const frame = new Image();
+      frame.crossOrigin = 'anonymous';
+      await new Promise<void>(res => {
+        frame.onload = () => { ctx.drawImage(frame, 0, 0, canvas.width, canvas.height); res(); };
+        frame.onerror = () => res();
+        frame.src = selected.imageUrl;
+      });
+    };
+
+    draw();
+  }, [photos, slotIdx, selected, stage]);
+
   const availCounts = Array.from(new Set(templates.map(t => t.photoCount))).sort((a, b) => a - b);
   const filtered = templates.filter(t => {
     if (filterCount !== 'all' && String(t.photoCount) !== filterCount) return false;
@@ -852,33 +935,6 @@ export function PhotoboxPage() {
   const reset = () => {
     setStage('template-selection'); setSelected(null); setPhotos([]);
     setSlotIdx(0); setFinalImg(null); setSaved(false); setCountdown(null);
-  };
-
-  // Slot guides overlay in camera
-  const slotGuides = () => {
-    if (!selected) return null;
-    return selected.slots.map((slot, i) => {
-      const done = photos.some(p => p.slotIndex === i);
-      if (done) return null;
-      return (
-        <div
-          key={i}
-          className={`pb-slot-guide ${i === slotIdx ? 'current' : ''}`}
-          style={{
-            left: `${(slot.x / selected.canvasWidth) * 100}%`,
-            top: `${(slot.y / selected.canvasHeight) * 100}%`,
-            width: `${(slot.width / selected.canvasWidth) * 100}%`,
-            height: `${(slot.height / selected.canvasHeight) * 100}%`,
-          }}
-        >
-          {i === slotIdx && (
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 22, opacity: 0.6 }}>
-              👤
-            </div>
-          )}
-        </div>
-      );
-    });
   };
 
   return (
@@ -1004,31 +1060,17 @@ export function PhotoboxPage() {
               </div>
             </div>
 
-            {/* Camera viewport — aspect ratio matches template! */}
+            {/* Full camera — NO template overlay, NO aspect ratio forcing */}
             <div className="pb-cam-viewport">
-              <div
-                className="pb-cam-inner"
-                style={{
-                  aspectRatio: `${selected.canvasWidth} / ${selected.canvasHeight}`,
-                  width: templateAspect >= 1 ? '100%' : 'auto',
-                  height: templateAspect < 1 ? '100%' : 'auto',
-                }}
-              >
+              <div className="pb-cam-inner">
                 <Webcam
                   ref={webcamRef}
                   audio={false}
                   screenshotFormat="image/jpeg"
                   className="pb-cam-video"
-                  videoConstraints={{ facingMode: 'user', aspectRatio: templateAspect }}
+                  videoConstraints={{ facingMode: 'user' }}
+                  screenshotQuality={1}
                 />
-
-                {/* Slot guides (dashed outlines showing where photos go) */}
-                {slotGuides()}
-
-                {/* Frame overlay — sandwich technique live preview */}
-                <div className="pb-frame-ov">
-                  <img src={selected.imageUrl} alt="frame" />
-                </div>
 
                 {/* Countdown */}
                 {countdown !== null && countdown > 0 && (
@@ -1048,13 +1090,37 @@ export function PhotoboxPage() {
             </div>
           </div>
 
+          {/* Sidebar: Live composite preview */}
           <aside className="pb-sidebar">
             <div className="pb-sidebar-head">
               <div className="pb-sidebar-tname">{selected.name}</div>
               <p className="pb-sidebar-meta">
-                {selected.photoCount} foto • {getAspectLabel(selected.canvasWidth, selected.canvasHeight)} • {selected.canvasWidth}×{selected.canvasHeight}px
+                {photos.length}/{selected.photoCount} foto • Live preview
               </p>
             </div>
+
+            {/* Live preview canvas */}
+            <div style={{
+              padding: '16px 16px 8px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              borderBottom: '1px solid var(--pb-bdr2)',
+            }}>
+              <div style={{
+                width: '100%', borderRadius: 10, overflow: 'hidden',
+                background: 'repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px',
+                border: '1px solid var(--pb-bdr)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <canvas
+                  ref={liveCanvasRef}
+                  style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 320, objectFit: 'contain' }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--pb-text3)', textAlign: 'center' }}>
+                Preview langsung masuk sini tiap foto dijepret ↑
+              </div>
+            </div>
+
             <div className="pb-steps-list">
               {Array.from({ length: selected.photoCount }).map((_, i) => {
                 const cap = photos.find(p => p.slotIndex === i);
@@ -1102,9 +1168,9 @@ export function PhotoboxPage() {
           </div>
 
           <aside className="pb-preview-side">
-            <div className="pb-side-title">Preview Frame</div>
+            <div className="pb-side-title">Preview Hasil</div>
             <div className="pb-mini-frame">
-              <img src={selected.imageUrl} alt="frame" />
+              <canvas ref={liveCanvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
             </div>
             <p className="pb-info-text">
               {photos.length}/{selected.photoCount} foto siap. Foto akan di-fit otomatis ke setiap slot.
