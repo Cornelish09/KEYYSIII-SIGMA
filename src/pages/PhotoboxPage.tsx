@@ -1,1231 +1,1354 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-} from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage } from "../firebase";
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import Webcam from 'react-webcam';
+import { db } from '../firebase';
+import { collection, query, orderBy, onSnapshot, addDoc } from 'firebase/firestore';
 
-/** ==== TYPES (match Admin collections) ==== */
+// ==========================================
+// 🎯 TYPES
+// ==========================================
 type PhotoSlot = { x: number; y: number; width: number; height: number };
 
 type PhotoTemplate = {
   id: string;
   name: string;
-  imageUrl: string; // PNG transparent overlay (top layer)
-  photoCount: number; // 1-4
+  imageUrl: string;
+  photoCount: number;
   slots: PhotoSlot[];
-  canvasWidth: number; // ex: 707
-  canvasHeight: number; // ex: 2000
+  canvasWidth: number;
+  canvasHeight: number;
   createdAt: string;
-
-  // Optional future “sandwich layering” support (backward compatible)
-  underlayUrl?: string; // background layer (optional)
-  overlayUrl?: string; // top layer override (optional)
   tags?: string[];
+  category?: string;
 };
 
-type SlotEdit = {
-  // offsets are in SLOT px (not preview px)
-  offsetX: number;
-  offsetY: number;
-  zoom: number; // 1..3
-  filter: FilterKey;
-};
+type CapturedPhoto = { slotIndex: number; dataUrl: string };
+type Stage = 'template-selection' | 'camera-capture' | 'preview' | 'result';
+type FilterCount = 'all' | '2' | '3' | '4' | '6';
 
-type CapturedPhoto = {
-  dataUrl: string; // captured from camera
-};
+// ==========================================
+// 🎨 STYLES (injected once)
+// ==========================================
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;0,9..144,900;1,9..144,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-type Step = "select" | "capture" | "edit" | "export";
-
-type FilterKey = "none" | "bw" | "warm" | "cool" | "vintage";
-
-function cssFilter(key: FilterKey) {
-  switch (key) {
-    case "bw":
-      return "grayscale(1) contrast(1.05)";
-    case "warm":
-      return "saturate(1.15) contrast(1.05) sepia(0.2)";
-    case "cool":
-      return "saturate(1.1) contrast(1.05) hue-rotate(10deg)";
-    case "vintage":
-      return "sepia(0.35) contrast(1.05) saturate(0.9)";
-    default:
-      return "none";
+  :root {
+    --cream: #FDF6EE;
+    --cream2: #F5EDE0;
+    --coral: #FF6B6B;
+    --coral-dark: #E85555;
+    --orange: #FF8C42;
+    --gold: #F4A261;
+    --dark: #1A1208;
+    --dark2: #2D2112;
+    --mid: #7A6652;
+    --light: #C4A882;
+    --white: #FFFCF8;
+    --shadow: rgba(90,60,20,0.15);
+    --shadow-strong: rgba(90,60,20,0.28);
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
-}
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
+  .pb-root {
+    position: fixed; inset: 0;
+    background: var(--cream);
+    font-family: var(--font-body);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
 
-function randomId(prefix: string) {
-  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
-}
+  /* Grain overlay */
+  .pb-root::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 999;
+    opacity: 0.4;
+  }
 
-function loadImage(url: string, crossOrigin = true): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    if (crossOrigin) img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to load image: " + url));
-    img.src = url;
-  });
-}
+  /* ====== TOPBAR ====== */
+  .pb-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px;
+    background: var(--white);
+    border-bottom: 1.5px solid var(--cream2);
+    z-index: 100; flex-shrink: 0;
+    box-shadow: 0 2px 20px var(--shadow);
+  }
 
-async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  const res = await fetch(dataUrl);
-  return await res.blob();
-}
+  .pb-logo {
+    font-family: var(--font-display);
+    font-size: 26px; font-weight: 900;
+    color: var(--dark);
+    letter-spacing: -0.5px;
+    display: flex; align-items: center; gap: 10px;
+  }
 
-export function PhotoboxPage() {
-  /** ==== DATA ==== */
-  const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<PhotoTemplate | null>(null);
+  .pb-logo-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--coral);
+    display: inline-block; margin-bottom: 2px;
+  }
 
-  /** ==== UI ==== */
-  const [step, setStep] = useState<Step>("select");
-  const [search, setSearch] = useState("");
-  const [countdownSec, setCountdownSec] = useState<number>(3);
-  const [countdownNow, setCountdownNow] = useState<number | null>(null);
-  const [flash, setFlash] = useState(false);
+  .pb-back-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 20px;
+    border: 1.5px solid var(--cream2);
+    background: var(--white);
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-weight: 600; font-size: 14px;
+    color: var(--dark2);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .pb-back-btn:hover { border-color: var(--coral); color: var(--coral); transform: translateX(-2px); }
 
-  /** ==== CAMERA ==== */
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const captureCanvasRef = useRef<HTMLCanvasElement>(null);
+  /* ====== SCROLL AREA ====== */
+  .pb-scroll {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--cream2) transparent;
+  }
 
-  /** ==== CAPTURE/EDIT ==== */
-  const [shots, setShots] = useState<CapturedPhoto[]>([]);
-  const [slotEdits, setSlotEdits] = useState<SlotEdit[]>([]);
-  const [activeSlot, setActiveSlot] = useState<number>(0);
+  /* ====== SECTION HEADERS ====== */
+  .pb-hero {
+    padding: 48px 40px 32px;
+    background: linear-gradient(180deg, #FDF6EE 0%, #F5EDE0 100%);
+    border-bottom: 1px solid var(--cream2);
+    text-align: center;
+  }
 
-  /** ==== PREVIEW SCALE ==== */
-  const previewWrapRef = useRef<HTMLDivElement>(null);
-  const [previewW, setPreviewW] = useState(360);
+  .pb-hero-tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 16px;
+    background: var(--coral); color: white;
+    border-radius: 100px; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 20px;
+  }
 
-  /** ==== EXPORT ==== */
-  const [exporting, setExporting] = useState(false);
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  .pb-hero-title {
+    font-family: var(--font-display);
+    font-size: clamp(32px, 5vw, 54px);
+    font-weight: 900; color: var(--dark);
+    line-height: 1.1; margin: 0 0 16px;
+  }
 
-  /** ==== Listen templates from Firestore ==== */
-  useEffect(() => {
-    const q = query(collection(db, "photobox_templates"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as PhotoTemplate[];
-        setTemplates(list);
-      },
-      (err) => setErrorMsg("Gagal load template: " + err.message)
-    );
-    return () => unsub();
-  }, []);
+  .pb-hero-title em {
+    font-style: italic; color: var(--coral);
+  }
 
-  /** ==== Resize observer for preview width ==== */
-  useEffect(() => {
-    const el = previewWrapRef.current;
-    if (!el) return;
+  .pb-hero-sub {
+    font-size: 16px; color: var(--mid);
+    font-weight: 500; margin: 0;
+  }
 
-    const obs = new ResizeObserver(() => {
-      setPreviewW(Math.max(320, Math.min(520, el.clientWidth)));
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+  /* ====== FILTER BAR ====== */
+  .pb-filterbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 20px 40px;
+    background: var(--white);
+    border-bottom: 1px solid var(--cream2);
+    flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 50;
+    box-shadow: 0 2px 12px var(--shadow);
+  }
 
-  /** ==== filtered templates ==== */
-  const filteredTemplates = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    if (!s) return templates;
-    return templates.filter((t) => {
-      const hay = `${t.name} ${(t.tags || []).join(" ")} ${t.photoCount}`.toLowerCase();
-      return hay.includes(s);
-    });
-  }, [templates, search]);
+  .pb-filter-label {
+    font-size: 13px; font-weight: 700; color: var(--mid);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
 
-  /** ==== helper derived ==== */
-  const needShots = selectedTemplate?.photoCount || 0;
-  const canGoCapture = !!selectedTemplate;
+  .pb-filter-pills {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
 
-  const overlayUrl = selectedTemplate?.overlayUrl || selectedTemplate?.imageUrl || "";
-  const underlayUrl = selectedTemplate?.underlayUrl || "";
+  .pb-pill {
+    padding: 7px 18px;
+    border-radius: 100px;
+    border: 1.5px solid var(--cream2);
+    background: var(--white);
+    font-size: 13px; font-weight: 600;
+    color: var(--mid); cursor: pointer;
+    transition: all 0.2s;
+  }
+  .pb-pill:hover { border-color: var(--coral); color: var(--coral); }
+  .pb-pill.active {
+    background: var(--dark); color: white;
+    border-color: var(--dark);
+  }
 
-  const scale = useMemo(() => {
-    if (!selectedTemplate) return 1;
-    return previewW / selectedTemplate.canvasWidth;
-  }, [previewW, selectedTemplate]);
+  .pb-search {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
+    border: 1.5px solid var(--cream2);
+    border-radius: 100px;
+    background: var(--cream);
+    min-width: 220px;
+  }
 
-  /** ==== camera start/stop ==== */
-  async function startCamera() {
-    setErrorMsg(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-    } catch (e: any) {
-      setErrorMsg("Kamera nggak bisa diakses. Cek permission browser ya. (" + e?.message + ")");
+  .pb-search input {
+    border: none; background: transparent;
+    font-family: var(--font-body);
+    font-size: 14px; color: var(--dark2);
+    outline: none; width: 100%;
+  }
+  .pb-search input::placeholder { color: var(--light); }
+
+  /* ====== TEMPLATE GRID ====== */
+  .pb-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 24px;
+    padding: 32px 40px 60px;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .pb-template-card {
+    background: var(--white);
+    border-radius: 20px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.25s;
+    box-shadow: 0 4px 20px var(--shadow);
+    position: relative;
+  }
+  .pb-template-card:hover {
+    transform: translateY(-6px);
+    border-color: var(--coral);
+    box-shadow: 0 16px 40px var(--shadow-strong);
+  }
+
+  .pb-card-badge {
+    position: absolute; top: 14px; left: 14px; z-index: 5;
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 12px;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(8px);
+    border-radius: 100px;
+    font-size: 12px; font-weight: 700; color: var(--dark2);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  }
+
+  .pb-card-preview {
+    width: 100%; height: 300px;
+    background: repeating-conic-gradient(#EFE5D8 0% 25%, #F5EDE0 0% 50%) 0 0 / 16px 16px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  .pb-card-preview img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    transition: transform 0.3s;
+  }
+  .pb-template-card:hover .pb-card-preview img { transform: scale(1.03); }
+
+  .pb-card-hover-btn {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(26,18,8,0.6);
+    opacity: 0; transition: opacity 0.25s;
+    backdrop-filter: blur(4px);
+  }
+  .pb-template-card:hover .pb-card-hover-btn { opacity: 1; }
+
+  .pb-select-btn {
+    padding: 12px 28px;
+    background: var(--coral); color: white;
+    border: none; border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 15px; font-weight: 700;
+    cursor: pointer;
+    transform: translateY(8px);
+    transition: transform 0.25s;
+  }
+  .pb-template-card:hover .pb-select-btn { transform: translateY(0); }
+
+  .pb-card-info {
+    padding: 16px 20px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .pb-card-name {
+    font-size: 16px; font-weight: 700; color: var(--dark);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .pb-card-tags {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .pb-tag {
+    padding: 3px 10px; border-radius: 100px;
+    background: var(--cream2); color: var(--mid);
+    font-size: 11px; font-weight: 600;
+  }
+
+  .pb-card-arrow {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--coral); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+    transition: transform 0.2s;
+  }
+  .pb-template-card:hover .pb-card-arrow { transform: scale(1.1) rotate(45deg); }
+
+  /* ====== EMPTY STATE ====== */
+  .pb-empty {
+    grid-column: 1/-1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 80px 40px; text-align: center; color: var(--mid);
+  }
+  .pb-empty-icon { font-size: 64px; margin-bottom: 20px; opacity: 0.5; }
+  .pb-empty h3 { font-family: var(--font-display); font-size: 24px; color: var(--dark2); margin: 0 0 8px; }
+  .pb-empty p { margin: 0; font-size: 14px; }
+
+  /* ====== CAMERA STAGE ====== */
+  .pb-camera-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    height: calc(100vh - 65px);
+    overflow: hidden;
+  }
+
+  .pb-camera-main {
+    position: relative;
+    background: #0D0D0D;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .pb-camera-topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+    padding: 20px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+  }
+
+  .pb-camera-title {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: white; italic; font-style: italic;
+  }
+
+  .pb-camera-frame-wrapper {
+    flex: 1; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+
+  .pb-webcam {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+
+  .pb-frame-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 10;
+  }
+  .pb-frame-overlay img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+  }
+
+  /* Countdown ring overlay */
+  .pb-countdown-overlay {
+    position: absolute; inset: 0; z-index: 30;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(2px);
+  }
+
+  .pb-countdown-ring {
+    position: relative; width: 160px; height: 160px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .pb-countdown-ring svg {
+    position: absolute; inset: 0;
+    transform: rotate(-90deg);
+  }
+
+  .pb-countdown-ring-bg { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 6; }
+  .pb-countdown-ring-fill {
+    fill: none; stroke: var(--coral);
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear;
+  }
+
+  .pb-countdown-num {
+    font-family: var(--font-display);
+    font-size: 72px; font-weight: 900;
+    color: white; line-height: 1;
+    animation: cntPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes cntPop {
+    0% { transform: scale(0.4); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .pb-countdown-hint {
+    margin-top: 20px; color: rgba(255,255,255,0.7);
+    font-size: 15px; font-weight: 600; letter-spacing: 0.5px;
+  }
+
+  .pb-flash { position: absolute; inset: 0; z-index: 50; background: white; animation: flashOut 0.35s ease-out forwards; }
+  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* Camera bottom controls */
+  .pb-camera-controls {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+    padding: 24px 32px 32px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+    display: flex; align-items: center; justify-content: center; gap: 24px;
+  }
+
+  .pb-timer-group {
+    display: flex; gap: 8px;
+  }
+
+  .pb-timer-btn {
+    padding: 8px 14px; border-radius: 100px;
+    border: 1.5px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.1);
+    color: white; font-family: var(--font-body);
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: all 0.2s;
+    backdrop-filter: blur(8px);
+  }
+  .pb-timer-btn:hover { border-color: white; background: rgba(255,255,255,0.2); }
+  .pb-timer-btn.active { background: var(--coral); border-color: var(--coral); }
+
+  .pb-capture-btn {
+    width: 76px; height: 76px; border-radius: 50%;
+    border: 4px solid white;
+    background: white;
+    cursor: pointer; position: relative;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 0 0 0 rgba(255,107,107,0.5);
+  }
+  .pb-capture-btn::after {
+    content: '';
+    position: absolute; inset: 6px;
+    border-radius: 50%;
+    background: var(--coral);
+    transition: transform 0.15s;
+  }
+  .pb-capture-btn:hover { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255,107,107,0.25); }
+  .pb-capture-btn:active::after { transform: scale(0.88); }
+  .pb-capture-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ====== CAMERA SIDEBAR ====== */
+  .pb-sidebar {
+    background: var(--white);
+    border-left: 1.5px solid var(--cream2);
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .pb-sidebar-header {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--cream2);
+  }
+
+  .pb-sidebar-title {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    color: var(--dark); margin: 0 0 4px;
+  }
+
+  .pb-sidebar-sub { font-size: 13px; color: var(--mid); margin: 0; }
+
+  /* Progress steps */
+  .pb-progress-steps {
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    flex: 1;
+  }
+
+  .pb-step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 2px solid transparent;
+    transition: all 0.25s;
+  }
+  .pb-step.done { background: #F0FDF4; border-color: #86EFAC; }
+  .pb-step.active { background: #FFF5F5; border-color: var(--coral); }
+  .pb-step.pending { background: var(--cream); }
+
+  .pb-step-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 800; flex-shrink: 0;
+  }
+  .pb-step.done .pb-step-num { background: #22C55E; color: white; }
+  .pb-step.active .pb-step-num { background: var(--coral); color: white; animation: pulseSoft 1.5s infinite; }
+  .pb-step.pending .pb-step-num { background: var(--cream2); color: var(--light); }
+
+  @keyframes pulseSoft {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(255,107,107,0); }
+  }
+
+  .pb-step-thumb {
+    width: 48px; height: 48px; border-radius: 10px;
+    overflow: hidden; flex-shrink: 0;
+    background: var(--cream2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pb-step-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .pb-step-thumb-empty { font-size: 18px; opacity: 0.4; }
+
+  .pb-step-label { font-size: 13px; font-weight: 600; color: var(--dark2); }
+  .pb-step-status { font-size: 11px; color: var(--mid); margin-top: 2px; }
+
+  /* Sidebar footer */
+  .pb-sidebar-footer {
+    padding: 20px;
+    border-top: 1px solid var(--cream2);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .pb-btn-full {
+    width: 100%; padding: 12px;
+    border-radius: 14px; border: none;
+    font-family: var(--font-body);
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .pb-btn-primary { background: var(--coral); color: white; }
+  .pb-btn-primary:hover { background: var(--coral-dark); transform: translateY(-1px); }
+  .pb-btn-ghost { background: transparent; color: var(--mid); border: 1.5px solid var(--cream2); }
+  .pb-btn-ghost:hover { border-color: var(--mid); color: var(--dark2); }
+
+  /* ====== PREVIEW STAGE ====== */
+  .pb-preview-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 0;
+    height: calc(100vh - 65px);
+    overflow: hidden;
+  }
+
+  .pb-preview-main {
+    padding: 40px;
+    overflow-y: auto;
+    background: var(--cream);
+  }
+
+  .pb-preview-title {
+    font-family: var(--font-display); font-size: 36px; font-weight: 900;
+    color: var(--dark); margin: 0 0 8px;
+  }
+  .pb-preview-title em { color: var(--coral); font-style: italic; }
+  .pb-preview-sub { color: var(--mid); font-size: 15px; margin: 0 0 32px; }
+
+  .pb-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
+  }
+
+  .pb-preview-card {
+    background: white; border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px var(--shadow);
+    position: relative;
+  }
+
+  .pb-preview-card-img {
+    width: 100%; aspect-ratio: 3/4;
+    object-fit: cover;
+    display: block;
+    transform: scaleX(-1);
+  }
+
+  .pb-preview-card-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s;
+    backdrop-filter: blur(4px);
+  }
+  .pb-preview-card:hover .pb-preview-card-overlay { opacity: 1; }
+
+  .pb-retake-btn {
+    padding: 10px 20px; border-radius: 100px;
+    background: white; color: var(--coral);
+    border: none; font-family: var(--font-body);
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .pb-retake-btn:hover { background: var(--coral); color: white; }
+
+  .pb-preview-card-num {
+    position: absolute; top: 10px; left: 10px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: white; color: var(--dark2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  /* Preview side panel */
+  .pb-preview-side {
+    background: var(--white);
+    border-left: 1.5px solid var(--cream2);
+    padding: 32px 24px;
+    display: flex; flex-direction: column; gap: 20px;
+    overflow-y: auto;
+  }
+
+  .pb-composite-preview {
+    width: 100%;
+    border-radius: 16px; overflow: hidden;
+    background: repeating-conic-gradient(#EFE5D8 0% 25%, #F5EDE0 0% 50%) 0 0 / 12px 12px;
+    aspect-ratio: 2/3;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; color: var(--light);
+  }
+
+  .pb-composite-preview img {
+    width: 100%; height: 100%; object-fit: contain;
+  }
+
+  /* ====== RESULT STAGE ====== */
+  .pb-result-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 0;
+    height: calc(100vh - 65px);
+    overflow: hidden;
+  }
+
+  .pb-result-main {
+    background: var(--dark);
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px; overflow-y: auto;
+    position: relative;
+  }
+
+  .pb-result-main::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(255,107,107,0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .pb-result-img-wrapper {
+    position: relative; max-width: 400px; width: 100%;
+    filter: drop-shadow(0 30px 60px rgba(0,0,0,0.8));
+    animation: resultReveal 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
+  @keyframes resultReveal {
+    0% { transform: scale(0.7) rotate(-3deg); opacity: 0; }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  }
+
+  .pb-result-img-wrapper img {
+    width: 100%; border-radius: 4px; display: block;
+  }
+
+  /* Polaroid tape */
+  .pb-tape {
+    position: absolute; top: -14px; left: 50%;
+    transform: translateX(-50%) rotate(-1.5deg);
+    width: 80px; height: 28px;
+    background: rgba(255,249,196,0.75);
+    backdrop-filter: blur(4px);
+    border-radius: 3px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  .pb-result-side {
+    background: var(--white);
+    border-left: 1.5px solid var(--cream2);
+    padding: 40px 28px;
+    display: flex; flex-direction: column; gap: 16px;
+    overflow-y: auto;
+  }
+
+  .pb-result-congrats {
+    font-family: var(--font-display);
+    font-size: 32px; font-weight: 900; color: var(--dark);
+    line-height: 1.2; margin: 0 0 4px;
+  }
+  .pb-result-congrats em { color: var(--coral); font-style: italic; }
+
+  .pb-result-hint { font-size: 14px; color: var(--mid); margin: 0 0 24px; }
+
+  .pb-action-btn {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px;
+    border-radius: 16px; border: 2px solid transparent;
+    background: var(--cream);
+    font-family: var(--font-body);
+    font-size: 15px; font-weight: 700;
+    color: var(--dark2); cursor: pointer;
+    transition: all 0.2s; width: 100%;
+    text-align: left;
+  }
+  .pb-action-btn:hover { border-color: var(--coral); background: #FFF5F5; }
+  .pb-action-btn.primary { background: var(--coral); color: white; border-color: var(--coral); }
+  .pb-action-btn.primary:hover { background: var(--coral-dark); }
+
+  .pb-action-icon {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: rgba(255,255,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .pb-action-btn:not(.primary) .pb-action-icon {
+    background: var(--cream2);
+  }
+
+  .pb-action-text-wrap { flex: 1; }
+  .pb-action-title { display: block; }
+  .pb-action-desc { font-size: 12px; font-weight: 400; opacity: 0.7; display: block; margin-top: 2px; }
+
+  .pb-divider { height: 1px; background: var(--cream2); margin: 4px 0; }
+
+  /* Saving indicator */
+  .pb-saving-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; border-radius: 12px;
+    background: #F0FDF4; border: 1.5px solid #86EFAC;
+    font-size: 13px; font-weight: 600; color: #16A34A;
+    animation: fadeIn 0.3s;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ====== LOADING ====== */
+  .pb-generating {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(26,18,8,0.85);
+    backdrop-filter: blur(8px);
+  }
+
+  .pb-spinner {
+    width: 56px; height: 56px; border-radius: 50%;
+    border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: var(--coral);
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .pb-gen-text {
+    color: white; font-family: var(--font-display);
+    font-size: 22px; font-weight: 700; font-style: italic;
+  }
+
+  /* ====== RESPONSIVE ====== */
+  @media (max-width: 900px) {
+    .pb-camera-layout,
+    .pb-preview-layout,
+    .pb-result-layout {
+      grid-template-columns: 1fr;
     }
-  }
 
-  function stopCamera() {
-    const s = streamRef.current;
-    if (s) s.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-  }
-
-  /** ==== select template -> init state ==== */
-  function chooseTemplate(t: PhotoTemplate) {
-    setSelectedTemplate(t);
-    setResultUrl(null);
-    setShots([]);
-    setActiveSlot(0);
-
-    // init slot edits
-    const edits: SlotEdit[] = (t.slots || []).slice(0, t.photoCount).map(() => ({
-      offsetX: 0,
-      offsetY: 0,
-      zoom: 1.15,
-      filter: "none",
-    }));
-    setSlotEdits(edits);
-  }
-
-  /** ==== step transitions ==== */
-  async function goCapture() {
-    if (!selectedTemplate) return;
-    setStep("capture");
-    setShots([]);
-    setActiveSlot(0);
-    setResultUrl(null);
-    await startCamera();
-  }
-
-  function goEdit() {
-    stopCamera();
-    setStep("edit");
-  }
-
-  function backToSelect() {
-    stopCamera();
-    setSelectedTemplate(null);
-    setShots([]);
-    setSlotEdits([]);
-    setActiveSlot(0);
-    setStep("select");
-    setResultUrl(null);
-    setErrorMsg(null);
-  }
-
-  /** ==== countdown capture logic ==== */
-  async function captureOne() {
-    if (!selectedTemplate) return;
-    if (!videoRef.current || !captureCanvasRef.current) return;
-
-    const video = videoRef.current;
-    const canvas = captureCanvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // capture full video frame into canvas (store as dataURL)
-    const vw = video.videoWidth || 1280;
-    const vh = video.videoHeight || 720;
-    canvas.width = vw;
-    canvas.height = vh;
-    ctx.drawImage(video, 0, 0, vw, vh);
-
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-
-    setFlash(true);
-    setTimeout(() => setFlash(false), 120);
-
-    setShots((prev) => {
-      const next = [...prev, { dataUrl }];
-      return next.slice(0, needShots);
-    });
-  }
-
-  async function startCountdownAndShoot() {
-    if (!selectedTemplate) return;
-    if (countdownNow !== null) return; // already counting
-    if (shots.length >= needShots) return;
-
-    setErrorMsg(null);
-
-    let t = countdownSec;
-    setCountdownNow(t);
-
-    const tick = () =>
-      new Promise<void>((resolve) => {
-        setTimeout(() => resolve(), 1000);
-      });
-
-    while (t > 0) {
-      // eslint-disable-next-line no-await-in-loop
-      await tick();
-      t -= 1;
-      setCountdownNow(t);
+    .pb-sidebar,
+    .pb-preview-side,
+    .pb-result-side {
+      height: auto; max-height: 50vh;
+      border-left: none; border-top: 1.5px solid var(--cream2);
     }
 
-    setCountdownNow(null);
-    await captureOne();
-
-    // auto go edit if completed
-    setTimeout(() => {
-      if (shots.length + 1 >= needShots) {
-        goEdit();
-      } else {
-        setActiveSlot(Math.min(shots.length + 1, needShots - 1));
-      }
-    }, 120);
-  }
-
-  function retakeSlot(slotIdx: number) {
-    // allow retake specific slot: replace shot at index
-    setShots((prev) => {
-      const next = [...prev];
-      next[slotIdx] = next[slotIdx] || { dataUrl: "" };
-      next[slotIdx].dataUrl = ""; // clear -> user re-capture
-      return next;
-    });
-    setStep("capture");
-    setActiveSlot(slotIdx);
-    startCamera();
-  }
-
-  /** ==== edit drag/zoom per slot ==== */
-  const dragState = useRef<{
-    dragging: boolean;
-    startX: number;
-    startY: number;
-    baseOffX: number;
-    baseOffY: number;
-  }>({ dragging: false, startX: 0, startY: 0, baseOffX: 0, baseOffY: 0 });
-
-  function onSlotPointerDown(e: React.PointerEvent, slotIdx: number) {
-    if (step !== "edit") return;
-    setActiveSlot(slotIdx);
-    dragState.current.dragging = true;
-    dragState.current.startX = e.clientX;
-    dragState.current.startY = e.clientY;
-    dragState.current.baseOffX = slotEdits[slotIdx]?.offsetX || 0;
-    dragState.current.baseOffY = slotEdits[slotIdx]?.offsetY || 0;
-    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-  }
-
-  function onSlotPointerMove(e: React.PointerEvent, slotIdx: number) {
-    if (!dragState.current.dragging) return;
-    if (step !== "edit") return;
-
-    const dxPreview = e.clientX - dragState.current.startX;
-    const dyPreview = e.clientY - dragState.current.startY;
-
-    // convert preview px -> real slot px
-    const dx = dxPreview / scale;
-    const dy = dyPreview / scale;
-
-    setSlotEdits((prev) => {
-      const next = [...prev];
-      const cur = next[slotIdx];
-      if (!cur) return prev;
-      next[slotIdx] = {
-        ...cur,
-        offsetX: dragState.current.baseOffX + dx,
-        offsetY: dragState.current.baseOffY + dy,
-      };
-      return next;
-    });
-  }
-
-  function onSlotPointerUp(e: React.PointerEvent) {
-    dragState.current.dragging = false;
-    try {
-      (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
+    .pb-camera-layout {
+      grid-template-rows: 1fr auto;
     }
+    .pb-camera-main { height: 55vh; }
+
+    .pb-template-grid { padding: 20px; gap: 16px; }
+    .pb-filterbar { padding: 12px 20px; }
+    .pb-hero { padding: 32px 20px 20px; }
+    .pb-result-main { min-height: 55vh; }
+    .pb-result-img-wrapper { max-width: 260px; }
+
+    .pb-topbar { padding: 12px 20px; }
+    .pb-hero-title { font-size: 28px; }
   }
+`;
 
-  /** ==== export composer (sandwich: underlay -> photos -> overlay) ==== */
-  async function exportAndUpload() {
-    if (!selectedTemplate) return;
-    if (shots.length < needShots) {
-      setErrorMsg("Foto kamu belum lengkap. Ambil semua shot dulu ya.");
-      return;
-    }
-
-    setExporting(true);
-    setErrorMsg(null);
-
-    try {
-      // load layers
-      const overlay = overlayUrl ? await loadImage(overlayUrl, true) : null;
-      const underlay = underlayUrl ? await loadImage(underlayUrl, true) : null;
-
-      // load captured images
-      const photoImgs: HTMLImageElement[] = [];
-      for (let i = 0; i < needShots; i++) {
-        const d = shots[i]?.dataUrl;
-        if (!d) throw new Error("Shot #" + (i + 1) + " kosong. Retake dulu.");
-        // eslint-disable-next-line no-await-in-loop
-        photoImgs.push(await loadImage(d, false));
-      }
-
-      // compose canvas
-      const out = document.createElement("canvas");
-      out.width = selectedTemplate.canvasWidth;
-      out.height = selectedTemplate.canvasHeight;
-      const ctx = out.getContext("2d");
-      if (!ctx) throw new Error("Canvas context gagal.");
-
-      // optional background layer
-      if (underlay) ctx.drawImage(underlay, 0, 0, out.width, out.height);
-
-      // draw each photo into slot
-      for (let i = 0; i < needShots; i++) {
-        const slot = selectedTemplate.slots[i];
-        const img = photoImgs[i];
-        const edit = slotEdits[i] || { offsetX: 0, offsetY: 0, zoom: 1, filter: "none" };
-
-        ctx.save();
-
-        // clip to slot rect
-        ctx.beginPath();
-        ctx.rect(slot.x, slot.y, slot.width, slot.height);
-        ctx.clip();
-
-        // apply filter
-        ctx.filter = cssFilter(edit.filter);
-
-        /**
-         * Cover-fit + user offset/zoom
-         * - We want the image to fill slot (cover)
-         */
-        const iw = img.width;
-        const ih = img.height;
-        const slotAR = slot.width / slot.height;
-        const imgAR = iw / ih;
-
-        let drawW = slot.width;
-        let drawH = slot.height;
-
-        if (imgAR > slotAR) {
-          // image wider -> fit height, crop sides
-          drawH = slot.height;
-          drawW = drawH * imgAR;
-        } else {
-          // image taller -> fit width, crop top/bottom
-          drawW = slot.width;
-          drawH = drawW / imgAR;
-        }
-
-        // apply zoom (scale around center)
-        drawW *= edit.zoom;
-        drawH *= edit.zoom;
-
-        // center position + offset (offset in px)
-        const cx = slot.x + slot.width / 2 + edit.offsetX;
-        const cy = slot.y + slot.height / 2 + edit.offsetY;
-
-        const x = cx - drawW / 2;
-        const y = cy - drawH / 2;
-
-        ctx.drawImage(img, x, y, drawW, drawH);
-
-        ctx.restore();
-        ctx.filter = "none";
-      }
-
-      // overlay top layer (PNG transparent)
-      if (overlay) ctx.drawImage(overlay, 0, 0, out.width, out.height);
-
-      // to blob
-      const blob: Blob = await new Promise((resolve, reject) => {
-        out.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error("Export blob gagal."))),
-          "image/png",
-          1.0
-        );
-      });
-
-      // upload to Firebase Storage
-      const fileId = randomId("photobox");
-      const storageRef = ref(storage, `secret_photos/${fileId}.png`);
-      await uploadBytes(storageRef, blob, { contentType: "image/png" });
-      const url = await getDownloadURL(storageRef);
-
-      // write doc so Admin Gallery can see it
-      await addDoc(collection(db, "secret_photos"), {
-        url,
-        createdAt: new Date().toISOString(),
-        createdAtServer: serverTimestamp(),
-        templateId: selectedTemplate.id,
-        templateName: selectedTemplate.name,
-      });
-
-      setResultUrl(url);
-      setStep("export");
-    } catch (e: any) {
-      setErrorMsg(e?.message || "Export gagal.");
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  /** ==== UI styles (self-contained) ==== */
-  const styles: React.CSSProperties = {
-    minHeight: "100vh",
-    background:
-      "radial-gradient(1200px 800px at 20% 10%, rgba(59,130,246,0.25), transparent 60%), radial-gradient(900px 700px at 80% 20%, rgba(139,92,246,0.22), transparent 60%), #0b1220",
-    color: "#e5e7eb",
-    fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-  };
+// ==========================================
+// 🔢 SVG COUNTDOWN RING
+// ==========================================
+function CountdownRing({ value, max }: { value: number; max: number }) {
+  const r = 66;
+  const circ = 2 * Math.PI * r;
+  const progress = value / max;
+  const offset = circ * (1 - progress);
 
   return (
-    <div style={styles}>
-      {/* topbar */}
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          backdropFilter: "blur(14px)",
-          background: "rgba(11,18,32,0.65)",
-          borderBottom: "1px solid rgba(148,163,184,0.12)",
-        }}
-      >
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 900, letterSpacing: 0.3 }}>
-            📸 Photobox
-            <span style={{ fontWeight: 700, color: "#93c5fd", marginLeft: 10, fontSize: 12 }}>
-              {selectedTemplate ? selectedTemplate.name : "Template Selection"}
-            </span>
+    <div className="pb-countdown-ring">
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        <circle className="pb-countdown-ring-bg" cx="80" cy="80" r={r} />
+        <circle
+          className="pb-countdown-ring-fill"
+          cx="80" cy="80" r={r}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <span key={value} className="pb-countdown-num">{value}</span>
+    </div>
+  );
+}
+
+// ==========================================
+// 📸 MAIN COMPONENT
+// ==========================================
+export function PhotoboxPage() {
+  const [stage, setStage] = useState<Stage>('template-selection');
+  const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<PhotoTemplate | null>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
+  const [currentSlotIndex, setCurrentSlotIndex] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdownDuration, setCountdownDuration] = useState(3);
+  const [isFlashing, setIsFlashing] = useState(false);
+  const [finalImage, setFinalImage] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+  const [filterCount, setFilterCount] = useState<FilterCount>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const webcamRef = useRef<Webcam>(null);
+  const compositeCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Load templates
+  useEffect(() => {
+    const q = query(collection(db, 'photobox_templates'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snap) => {
+      setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })) as PhotoTemplate[]);
+    });
+  }, []);
+
+  // Countdown logic
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown === 0) {
+      doCapture();
+      setCountdown(null);
+      return;
+    }
+    const t = setTimeout(() => setCountdown(c => c !== null ? c - 1 : null), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
+  // ---- HANDLERS ----
+  const selectTemplate = (t: PhotoTemplate) => {
+    setSelectedTemplate(t);
+    setCapturedPhotos([]);
+    setCurrentSlotIndex(0);
+    setStage('camera-capture');
+  };
+
+  const startCountdown = () => {
+    if (countdown !== null) return;
+    setCountdown(countdownDuration);
+  };
+
+  const doCapture = useCallback(() => {
+    if (!webcamRef.current) return;
+    const src = webcamRef.current.getScreenshot();
+    if (!src) return;
+
+    setIsFlashing(true);
+    setTimeout(() => setIsFlashing(false), 350);
+
+    setCapturedPhotos(prev => {
+      const updated = [...prev, { slotIndex: currentSlotIndex, dataUrl: src }];
+      if (selectedTemplate && updated.length >= selectedTemplate.photoCount) {
+        // Go to preview
+        setCurrentSlotIndex(0);
+        setStage('preview');
+      } else {
+        setCurrentSlotIndex(idx => idx + 1);
+      }
+      return updated;
+    });
+  }, [webcamRef, currentSlotIndex, selectedTemplate]);
+
+  const retakePhoto = (slotIndex: number) => {
+    setCapturedPhotos(prev => prev.filter(p => p.slotIndex !== slotIndex));
+    setCurrentSlotIndex(slotIndex);
+    setStage('camera-capture');
+  };
+
+  const generateComposite = async (photos: CapturedPhoto[]) => {
+    if (!selectedTemplate || !compositeCanvasRef.current) return;
+    setIsGenerating(true);
+
+    const canvas = compositeCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { setIsGenerating(false); return; }
+
+    canvas.width = selectedTemplate.canvasWidth;
+    canvas.height = selectedTemplate.canvasHeight;
+
+    // White bg
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw photos into slots (mirror horizontally to match webcam preview)
+    for (const photo of photos) {
+      const slot = selectedTemplate.slots[photo.slotIndex];
+      if (!slot) continue;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>(res => {
+        img.onload = () => {
+          ctx.save();
+          // Mirror to match how user sees themselves
+          ctx.translate(slot.x + slot.width, slot.y);
+          ctx.scale(-1, 1);
+          ctx.drawImage(img, 0, 0, slot.width, slot.height);
+          ctx.restore();
+          res();
+        };
+        img.src = photo.dataUrl;
+      });
+    }
+
+    // Draw template frame on top (sandwich technique)
+    const frameImg = new Image();
+    frameImg.crossOrigin = 'anonymous';
+    await new Promise<void>(res => {
+      frameImg.onload = () => {
+        ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+        res();
+      };
+      frameImg.src = selectedTemplate.imageUrl;
+    });
+
+    setFinalImage(canvas.toDataURL('image/png'));
+    setIsGenerating(false);
+    setStage('result');
+  };
+
+  const downloadImage = () => {
+    if (!finalImage) return;
+    const a = document.createElement('a');
+    a.href = finalImage;
+    a.download = `photobox-${Date.now()}.png`;
+    a.click();
+  };
+
+  const saveToGallery = async () => {
+    if (!finalImage) return;
+    try {
+      await addDoc(collection(db, 'secret_photos'), {
+        url: finalImage,
+        templateId: selectedTemplate?.id,
+        createdAt: new Date().toISOString()
+      });
+      setSavedOk(true);
+    } catch (e) {
+      console.error(e);
+      alert('Gagal simpan ke galeri');
+    }
+  };
+
+  const resetSession = () => {
+    setStage('template-selection');
+    setSelectedTemplate(null);
+    setCapturedPhotos([]);
+    setCurrentSlotIndex(0);
+    setFinalImage(null);
+    setSavedOk(false);
+    setCountdown(null);
+  };
+
+  // ---- FILTERED TEMPLATES ----
+  const filteredTemplates = templates.filter(t => {
+    const countOk = filterCount === 'all' || String(t.photoCount) === filterCount;
+    const searchOk = !searchQuery || t.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return countOk && searchOk;
+  });
+
+  // Count distinct photo counts for filter pills
+  const availableCounts = Array.from(new Set(templates.map(t => t.photoCount))).sort();
+
+  // ==========================================
+  // RENDER
+  // ==========================================
+  return (
+    <div className="pb-root">
+      <style>{CSS}</style>
+
+      {/* Hidden composite canvas */}
+      <canvas ref={compositeCanvasRef} style={{ display: 'none' }} />
+
+      {/* Generating overlay */}
+      {isGenerating && (
+        <div className="pb-generating">
+          <div className="pb-spinner" />
+          <div className="pb-gen-text">Menyusun foto kamu...</div>
+        </div>
+      )}
+
+      {/* ======= TOP BAR ======= */}
+      <header className="pb-topbar">
+        <div className="pb-logo">
+          <span className="pb-logo-dot" />
+          Photobox
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {stage !== 'template-selection' && (
+            <button className="pb-back-btn" onClick={resetSession}>
+              ← Ganti Template
+            </button>
+          )}
+          <button className="pb-back-btn" onClick={() => window.history.back()}>
+            ✕ Keluar
+          </button>
+        </div>
+      </header>
+
+      {/* ======= STAGE: TEMPLATE SELECTION ======= */}
+      {stage === 'template-selection' && (
+        <div className="pb-scroll">
+          {/* Hero */}
+          <div className="pb-hero">
+            <div className="pb-hero-tag">✨ Digital Photobox</div>
+            <h1 className="pb-hero-title">
+              Pilih <em>template</em> kamu,<br />lalu kita mulai!
+            </h1>
+            <p className="pb-hero-sub">
+              {templates.length} template tersedia — gratis, instant, dan bisa didownload
+            </p>
           </div>
 
-          <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-            {selectedTemplate && (
+          {/* Filter bar */}
+          <div className="pb-filterbar">
+            <span className="pb-filter-label">Foto:</span>
+            <div className="pb-filter-pills">
               <button
-                onClick={backToSelect}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(148,163,184,0.18)",
-                  background: "rgba(2,6,23,0.55)",
-                  color: "#e5e7eb",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                }}
+                className={`pb-pill ${filterCount === 'all' ? 'active' : ''}`}
+                onClick={() => setFilterCount('all')}
               >
-                ⬅ Back
+                Semua
               </button>
+              {availableCounts.map(c => (
+                <button
+                  key={c}
+                  className={`pb-pill ${filterCount === String(c) ? 'active' : ''}`}
+                  onClick={() => setFilterCount(String(c) as FilterCount)}
+                >
+                  {c} Foto
+                </button>
+              ))}
+            </div>
+
+            <div className="pb-search">
+              <span style={{ fontSize: 16, color: 'var(--light)' }}>🔍</span>
+              <input
+                type="text"
+                placeholder="Cari template..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Template grid */}
+          <div className="pb-template-grid">
+            {filteredTemplates.length === 0 ? (
+              <div className="pb-empty">
+                <div className="pb-empty-icon">📦</div>
+                <h3>{templates.length === 0 ? 'Belum ada template' : 'Tidak ditemukan'}</h3>
+                <p>
+                  {templates.length === 0
+                    ? 'Admin belum upload template. Hubungi admin dulu ya!'
+                    : 'Coba ubah filter atau kata kunci pencarian.'}
+                </p>
+              </div>
+            ) : (
+              filteredTemplates.map(t => (
+                <div key={t.id} className="pb-template-card" onClick={() => selectTemplate(t)}>
+                  <div className="pb-card-badge">
+                    📸 {t.photoCount} foto
+                  </div>
+
+                  <div className="pb-card-preview">
+                    <img src={t.imageUrl} alt={t.name} loading="lazy" />
+                    <div className="pb-card-hover-btn">
+                      <button className="pb-select-btn">Pilih Template →</button>
+                    </div>
+                  </div>
+
+                  <div className="pb-card-info">
+                    <div>
+                      <div className="pb-card-name">{t.name}</div>
+                      {t.tags && t.tags.length > 0 && (
+                        <div className="pb-card-tags">
+                          {t.tags.slice(0, 3).map(tag => (
+                            <span key={tag} className="pb-tag">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="pb-card-arrow">→</div>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>
-      </div>
-
-      {/* flash overlay */}
-      {flash && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(255,255,255,0.85)",
-            zIndex: 9999,
-            pointerEvents: "none",
-          }}
-        />
       )}
 
-      {/* content */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "18px 16px 60px" }}>
-        {errorMsg && (
-          <div
-            style={{
-              marginBottom: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "1px solid rgba(239,68,68,0.35)",
-              background: "rgba(239,68,68,0.08)",
-              color: "#fecaca",
-              fontWeight: 700,
-            }}
-          >
-            ⚠ {errorMsg}
-          </div>
-        )}
-
-        {/* STEP: SELECT */}
-        {step === "select" && (
-          <>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: 14,
-                marginBottom: 16,
-              }}
-            >
-              <div
-                style={{
-                  borderRadius: 18,
-                  border: "1px solid rgba(148,163,184,0.14)",
-                  background: "rgba(2,6,23,0.45)",
-                  padding: 16,
-                }}
-              >
-                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>Pilih Template</div>
-                  <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 13 }}>
-                    Konsep layering PNG transparan (sandwich): foto di bawah, frame di atas.
-                  </div>
-                  <div style={{ marginLeft: "auto", minWidth: 260 }}>
-                    <input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search template..."
-                      style={{
-                        width: "100%",
-                        padding: "11px 12px",
-                        borderRadius: 12,
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: "rgba(2,6,23,0.55)",
-                        color: "#e5e7eb",
-                        outline: "none",
-                        fontWeight: 700,
-                      }}
-                    />
-                  </div>
-                </div>
+      {/* ======= STAGE: CAMERA CAPTURE ======= */}
+      {stage === 'camera-capture' && selectedTemplate && (
+        <div className="pb-camera-layout">
+          {/* Main camera area */}
+          <div className="pb-camera-main">
+            <div className="pb-camera-topbar">
+              <div className="pb-camera-title">
+                Foto {currentSlotIndex + 1} dari {selectedTemplate.photoCount}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[3, 5, 10].map(s => (
+                  <button
+                    key={s}
+                    className={`pb-timer-btn ${countdownDuration === s ? 'active' : ''}`}
+                    onClick={() => setCountdownDuration(s)}
+                    disabled={countdown !== null}
+                  >
+                    {s}s
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                gap: 14,
-              }}
-            >
-              {filteredTemplates.map((t) => {
-                const isActive = selectedTemplate?.id === t.id;
+            <div className="pb-camera-frame-wrapper">
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                screenshotFormat="image/jpeg"
+                className="pb-webcam"
+                videoConstraints={{ facingMode: 'user', width: 1280, height: 720 }}
+                style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+
+              {/* Live frame overlay (sandwich technique in preview) */}
+              <div className="pb-frame-overlay">
+                <img src={selectedTemplate.imageUrl} alt="frame" />
+              </div>
+
+              {/* Countdown */}
+              {countdown !== null && countdown > 0 && (
+                <div className="pb-countdown-overlay">
+                  <CountdownRing value={countdown} max={countdownDuration} />
+                  <div className="pb-countdown-hint">Berpose dulu!</div>
+                </div>
+              )}
+
+              {/* Flash */}
+              {isFlashing && <div className="pb-flash" />}
+            </div>
+
+            <div className="pb-camera-controls">
+              <button
+                className="pb-capture-btn"
+                onClick={startCountdown}
+                disabled={countdown !== null}
+                title="Ambil foto"
+              />
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <aside className="pb-sidebar">
+            <div className="pb-sidebar-header">
+              <div className="pb-sidebar-title">{selectedTemplate.name}</div>
+              <p className="pb-sidebar-sub">
+                {selectedTemplate.photoCount} foto • {selectedTemplate.canvasWidth}×{selectedTemplate.canvasHeight}px
+              </p>
+            </div>
+
+            <div className="pb-progress-steps">
+              {Array.from({ length: selectedTemplate.photoCount }).map((_, i) => {
+                const captured = capturedPhotos.find(p => p.slotIndex === i);
+                const status = captured ? 'done' : i === currentSlotIndex ? 'active' : 'pending';
                 return (
-                  <button
-                    key={t.id}
-                    onClick={() => chooseTemplate(t)}
-                    style={{
-                      textAlign: "left",
-                      borderRadius: 18,
-                      border: isActive ? "1px solid rgba(59,130,246,0.65)" : "1px solid rgba(148,163,184,0.14)",
-                      background: isActive ? "rgba(59,130,246,0.14)" : "rgba(2,6,23,0.45)",
-                      padding: 12,
-                      cursor: "pointer",
-                      color: "#e5e7eb",
-                      boxShadow: isActive ? "0 14px 40px rgba(59,130,246,0.16)" : "none",
-                      transition: "transform .12s ease",
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: 280,
-                        borderRadius: 14,
-                        border: "1px solid rgba(148,163,184,0.12)",
-                        background:
-                          "repeating-conic-gradient(rgba(148,163,184,0.07) 0% 25%, rgba(148,163,184,0.02) 0% 50%) 50% / 18px 18px",
-                        overflow: "hidden",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <img
-                        src={t.imageUrl}
-                        alt={t.name}
-                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                      />
+                  <div key={i} className={`pb-step ${status}`}>
+                    <div className="pb-step-num">
+                      {status === 'done' ? '✓' : i + 1}
                     </div>
-                    <div style={{ marginTop: 10, fontWeight: 900, fontSize: 15 }}>{t.name}</div>
-                    <div style={{ marginTop: 4, color: "#94a3b8", fontWeight: 800, fontSize: 12 }}>
-                      📸 {t.photoCount} shot • 📐 {t.canvasWidth}×{t.canvasHeight}
+                    <div className="pb-step-thumb">
+                      {captured
+                        ? <img src={captured.dataUrl} alt="" style={{ transform: 'scaleX(-1)' }} />
+                        : <span className="pb-step-thumb-empty">📷</span>
+                      }
                     </div>
-                  </button>
+                    <div>
+                      <div className="pb-step-label">Foto {i + 1}</div>
+                      <div className="pb-step-status">
+                        {status === 'done' ? '✓ Sudah diambil' : status === 'active' ? '← Sekarang' : 'Menunggu...'}
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
             </div>
 
-            <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button
-                disabled={!canGoCapture}
-                onClick={goCapture}
-                style={{
-                  padding: "12px 16px",
-                  borderRadius: 14,
-                  border: "1px solid rgba(59,130,246,0.35)",
-                  background: canGoCapture ? "linear-gradient(135deg, rgba(59,130,246,0.9), rgba(139,92,246,0.9))" : "rgba(148,163,184,0.12)",
-                  color: "#fff",
-                  cursor: canGoCapture ? "pointer" : "not-allowed",
-                  fontWeight: 900,
-                  boxShadow: canGoCapture ? "0 18px 48px rgba(59,130,246,0.22)" : "none",
-                }}
-              >
-                Start Photobooth →
+            <div className="pb-sidebar-footer">
+              <button className="pb-btn-full pb-btn-ghost" onClick={resetSession}>
+                ← Ganti Template
               </button>
             </div>
-          </>
-        )}
+          </aside>
+        </div>
+      )}
 
-        {/* STEP: CAPTURE */}
-        {step === "capture" && selectedTemplate && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, alignItems: "start" }}>
-            {/* camera */}
-            <div
-              style={{
-                borderRadius: 18,
-                border: "1px solid rgba(148,163,184,0.14)",
-                background: "rgba(2,6,23,0.45)",
-                padding: 14,
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontWeight: 900 }}>Camera</div>
-                <div style={{ color: "#94a3b8", fontWeight: 800, fontSize: 12 }}>
-                  Shot {Math.min(shots.length + 1, needShots)}/{needShots}
-                </div>
-              </div>
+      {/* ======= STAGE: PREVIEW ======= */}
+      {stage === 'preview' && selectedTemplate && (
+        <div className="pb-preview-layout">
+          <div className="pb-preview-main">
+            <h2 className="pb-preview-title">Cek dulu <em>hasilnya!</em></h2>
+            <p className="pb-preview-sub">
+              Hover foto untuk retake. Kalau sudah oke, klik "Proses Foto"!
+            </p>
 
-              <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", border: "1px solid rgba(148,163,184,0.14)" }}>
-                <video
-                  ref={videoRef}
-                  playsInline
-                  muted
-                  style={{ width: "100%", height: 520, objectFit: "cover", background: "#000" }}
-                />
-
-                {/* countdown overlay */}
-                {countdownNow !== null && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: "rgba(2,6,23,0.55)",
-                      fontSize: 120,
-                      fontWeight: 1000,
-                      letterSpacing: -2,
-                      color: "#fff",
-                      textShadow: "0 18px 60px rgba(0,0,0,0.55)",
-                    }}
-                  >
-                    {countdownNow}
+            <div className="pb-preview-grid">
+              {capturedPhotos.map((photo, idx) => (
+                <div key={idx} className="pb-preview-card">
+                  <img
+                    className="pb-preview-card-img"
+                    src={photo.dataUrl}
+                    alt={`Foto ${idx + 1}`}
+                  />
+                  <div className="pb-preview-card-num">{idx + 1}</div>
+                  <div className="pb-preview-card-overlay">
+                    <button
+                      className="pb-retake-btn"
+                      onClick={() => retakePhoto(photo.slotIndex)}
+                    >
+                      🔄 Retake
+                    </button>
                   </div>
-                )}
-              </div>
-
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-                {/* countdown selector */}
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <div style={{ color: "#94a3b8", fontWeight: 900, fontSize: 12 }}>COUNTDOWN</div>
-                  {[0, 3, 5, 10].map((v) => (
-                    <button
-                      key={v}
-                      onClick={() => setCountdownSec(v)}
-                      style={{
-                        padding: "9px 10px",
-                        borderRadius: 12,
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: countdownSec === v ? "rgba(59,130,246,0.25)" : "rgba(2,6,23,0.55)",
-                        color: "#e5e7eb",
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        fontSize: 12,
-                      }}
-                    >
-                      {v === 0 ? "OFF" : `${v}s`}
-                    </button>
-                  ))}
                 </div>
-
-                <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-                  <button
-                    onClick={startCountdownAndShoot}
-                    disabled={countdownNow !== null}
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(16,185,129,0.35)",
-                      background: "linear-gradient(135deg, rgba(16,185,129,0.9), rgba(59,130,246,0.85))",
-                      color: "#fff",
-                      cursor: countdownNow !== null ? "not-allowed" : "pointer",
-                      fontWeight: 950,
-                      boxShadow: "0 18px 48px rgba(16,185,129,0.18)",
-                    }}
-                  >
-                    📸 Shoot
-                  </button>
-
-                  {shots.length > 0 && (
-                    <button
-                      onClick={goEdit}
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: 14,
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: "rgba(2,6,23,0.55)",
-                        color: "#e5e7eb",
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                    >
-                      Next →
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <canvas ref={captureCanvasRef} style={{ display: "none" }} />
-            </div>
-
-            {/* right panel */}
-            <div
-              style={{
-                borderRadius: 18,
-                border: "1px solid rgba(148,163,184,0.14)",
-                background: "rgba(2,6,23,0.45)",
-                padding: 14,
-              }}
-            >
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Shots</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-                {Array.from({ length: needShots }).map((_, i) => {
-                  const shot = shots[i]?.dataUrl;
-                  const active = activeSlot === i;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => setActiveSlot(i)}
-                      style={{
-                        borderRadius: 14,
-                        border: active ? "1px solid rgba(59,130,246,0.7)" : "1px solid rgba(148,163,184,0.14)",
-                        background: "rgba(2,6,23,0.55)",
-                        overflow: "hidden",
-                        cursor: "pointer",
-                        position: "relative",
-                        height: 160,
-                      }}
-                    >
-                      {shot ? (
-                        <img src={shot} alt={`shot-${i}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontWeight: 900 }}>
-                          {i + 1}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div style={{ marginTop: 12, color: "#94a3b8", fontWeight: 800, fontSize: 12, lineHeight: 1.55 }}>
-                Tips:
-                <div>• Pilih countdown sesuai yang kamu mau.</div>
-                <div>• Shoot sampai lengkap → lanjut Edit.</div>
-              </div>
+              ))}
             </div>
           </div>
-        )}
 
-        {/* STEP: EDIT */}
-        {step === "edit" && selectedTemplate && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, alignItems: "start" }}>
-            {/* preview */}
-            <div
-              style={{
-                borderRadius: 18,
-                border: "1px solid rgba(148,163,184,0.14)",
-                background: "rgba(2,6,23,0.45)",
-                padding: 14,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontWeight: 900 }}>Edit & Preview</div>
-                <div style={{ color: "#94a3b8", fontWeight: 900, fontSize: 12 }}>Drag foto di slot • Zoom • Filter</div>
-              </div>
-
-              <div
-                ref={previewWrapRef}
-                style={{
-                  borderRadius: 16,
-                  border: "1px solid rgba(148,163,184,0.14)",
-                  background: "#000",
-                  overflow: "auto",
-                  maxHeight: "78vh",
-                  padding: 12,
-                }}
-              >
-                <div
-                  style={{
-                    position: "relative",
-                    width: selectedTemplate.canvasWidth * scale,
-                    height: selectedTemplate.canvasHeight * scale,
-                    margin: "0 auto",
-                    background: "rgba(2,6,23,0.35)",
-                    borderRadius: 16,
-                    overflow: "hidden",
-                  }}
-                >
-                  {/* underlay */}
-                  {underlayUrl && (
-                    <img
-                      src={underlayUrl}
-                      alt="underlay"
-                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-                    />
-                  )}
-
-                  {/* slots with photos */}
-                  {selectedTemplate.slots.slice(0, needShots).map((slot, i) => {
-                    const shot = shots[i]?.dataUrl;
-                    const edit = slotEdits[i];
-                    const isActive = activeSlot === i;
-
-                    return (
-                      <div
-                        key={i}
-                        onPointerDown={(e) => onSlotPointerDown(e, i)}
-                        onPointerMove={(e) => onSlotPointerMove(e, i)}
-                        onPointerUp={onSlotPointerUp}
-                        style={{
-                          position: "absolute",
-                          left: slot.x * scale,
-                          top: slot.y * scale,
-                          width: slot.width * scale,
-                          height: slot.height * scale,
-                          borderRadius: 12,
-                          outline: isActive ? "2px solid rgba(59,130,246,0.9)" : "1px solid rgba(148,163,184,0.18)",
-                          boxShadow: isActive ? "0 18px 50px rgba(59,130,246,0.22)" : "none",
-                          overflow: "hidden",
-                          background: "rgba(2,6,23,0.35)",
-                          cursor: "grab",
-                          touchAction: "none",
-                        }}
-                      >
-                        {shot ? (
-                          <img
-                            src={shot}
-                            alt={`slot-${i}`}
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              transform: `translate(${(edit?.offsetX || 0) * scale}px, ${(edit?.offsetY || 0) * scale}px) scale(${edit?.zoom || 1})`,
-                              transformOrigin: "center",
-                              filter: cssFilter(edit?.filter || "none"),
-                              userSelect: "none",
-                              pointerEvents: "none",
-                            }}
-                          />
-                        ) : (
-                          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontWeight: 950 }}>
-                            Shot kosong — retake
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* overlay (PNG transparent) */}
-                  {overlayUrl && (
-                    <img
-                      src={overlayUrl}
-                      alt="overlay"
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        pointerEvents: "none",
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
+          <aside className="pb-preview-side">
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--dark)' }}>
+              Template: {selectedTemplate.name}
             </div>
 
-            {/* controls */}
-            <div
-              style={{
-                borderRadius: 18,
-                border: "1px solid rgba(148,163,184,0.14)",
-                background: "rgba(2,6,23,0.45)",
-                padding: 14,
-              }}
+            {/* Mini composite preview placeholder */}
+            <div className="pb-composite-preview">
+              <img src={selectedTemplate.imageUrl} alt="preview frame" />
+            </div>
+
+            <div style={{ fontSize: 13, color: 'var(--mid)', lineHeight: 1.6 }}>
+              {capturedPhotos.length} dari {selectedTemplate.photoCount} foto siap.
+              Hover tiap foto untuk retake, atau lanjut proses sekarang!
+            </div>
+
+            <button
+              className="pb-btn-full pb-btn-primary"
+              onClick={() => generateComposite(capturedPhotos)}
+              disabled={capturedPhotos.length < selectedTemplate.photoCount}
+              style={{ padding: '14px', fontSize: 15 }}
             >
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Controls</div>
+              🎨 Proses Foto!
+            </button>
 
-              {/* slot picker */}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                {Array.from({ length: needShots }).map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setActiveSlot(i)}
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(148,163,184,0.18)",
-                      background: activeSlot === i ? "rgba(59,130,246,0.25)" : "rgba(2,6,23,0.55)",
-                      color: "#e5e7eb",
-                      cursor: "pointer",
-                      fontWeight: 900,
-                      fontSize: 12,
-                    }}
-                  >
-                    Slot {i + 1}
-                  </button>
-                ))}
-              </div>
+            <button className="pb-btn-full pb-btn-ghost" onClick={resetSession}>
+              Mulai Ulang
+            </button>
+          </aside>
+        </div>
+      )}
 
-              {/* zoom */}
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ color: "#94a3b8", fontWeight: 900, fontSize: 12, marginBottom: 6 }}>ZOOM</div>
-                <input
-                  type="range"
-                  min={1}
-                  max={3}
-                  step={0.05}
-                  value={slotEdits[activeSlot]?.zoom || 1.15}
-                  onChange={(e) => {
-                    const z = clamp(parseFloat(e.target.value), 1, 3);
-                    setSlotEdits((prev) => {
-                      const next = [...prev];
-                      if (!next[activeSlot]) return prev;
-                      next[activeSlot] = { ...next[activeSlot], zoom: z };
-                      return next;
-                    });
-                  }}
-                  style={{ width: "100%" }}
-                />
-                <div style={{ color: "#94a3b8", fontWeight: 900, fontSize: 12 }}>
-                  {Math.round((slotEdits[activeSlot]?.zoom || 1) * 100)}%
-                </div>
-              </div>
-
-              {/* filter */}
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ color: "#94a3b8", fontWeight: 900, fontSize: 12, marginBottom: 6 }}>FILTER</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {(["none", "bw", "warm", "cool", "vintage"] as FilterKey[]).map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => {
-                        setSlotEdits((prev) => {
-                          const next = [...prev];
-                          if (!next[activeSlot]) return prev;
-                          next[activeSlot] = { ...next[activeSlot], filter: k };
-                          return next;
-                        });
-                      }}
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 14,
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: (slotEdits[activeSlot]?.filter || "none") === k ? "rgba(16,185,129,0.18)" : "rgba(2,6,23,0.55)",
-                        color: "#e5e7eb",
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        fontSize: 12,
-                      }}
-                    >
-                      {k.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* quick actions */}
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  onClick={() => {
-                    setSlotEdits((prev) => {
-                      const next = [...prev];
-                      if (!next[activeSlot]) return prev;
-                      next[activeSlot] = { ...next[activeSlot], offsetX: 0, offsetY: 0, zoom: 1.15 };
-                      return next;
-                    });
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "12px 14px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(148,163,184,0.18)",
-                    background: "rgba(2,6,23,0.55)",
-                    color: "#e5e7eb",
-                    cursor: "pointer",
-                    fontWeight: 950,
-                  }}
-                >
-                  ♻ Reset Slot
-                </button>
-
-                <button
-                  onClick={() => retakeSlot(activeSlot)}
-                  style={{
-                    flex: 1,
-                    padding: "12px 14px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(239,68,68,0.35)",
-                    background: "rgba(239,68,68,0.12)",
-                    color: "#fecaca",
-                    cursor: "pointer",
-                    fontWeight: 950,
-                  }}
-                >
-                  🔁 Retake Slot
-                </button>
-              </div>
-
-              <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
-                <button
-                  onClick={() => setStep("capture")}
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(148,163,184,0.18)",
-                    background: "rgba(2,6,23,0.55)",
-                    color: "#e5e7eb",
-                    cursor: "pointer",
-                    fontWeight: 950,
-                  }}
-                >
-                  ⬅ Back Camera
-                </button>
-
-                <button
-                  onClick={exportAndUpload}
-                  disabled={exporting}
-                  style={{
-                    marginLeft: "auto",
-                    padding: "12px 16px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(16,185,129,0.35)",
-                    background: "linear-gradient(135deg, rgba(16,185,129,0.9), rgba(59,130,246,0.85))",
-                    color: "#fff",
-                    cursor: exporting ? "not-allowed" : "pointer",
-                    fontWeight: 1000,
-                    boxShadow: "0 18px 48px rgba(16,185,129,0.18)",
-                  }}
-                >
-                  {exporting ? "⏳ Exporting..." : "✅ Export & Upload"}
-                </button>
-              </div>
-
-              <div style={{ marginTop: 12, color: "#94a3b8", fontWeight: 800, fontSize: 12, lineHeight: 1.55 }}>
-                • Drag foto di slot untuk geser position. <br />
-                • Zoom + filter per slot. <br />
-                • Export = canvas “sandwich” (foto → overlay PNG).
-              </div>
+      {/* ======= STAGE: RESULT ======= */}
+      {stage === 'result' && finalImage && (
+        <div className="pb-result-layout">
+          {/* Dark display area */}
+          <div className="pb-result-main">
+            <div className="pb-result-img-wrapper">
+              <div className="pb-tape" />
+              <img src={finalImage} alt="Hasil Photobox" />
             </div>
           </div>
-        )}
 
-        {/* STEP: EXPORT */}
-        {step === "export" && selectedTemplate && (
-          <div
-            style={{
-              borderRadius: 18,
-              border: "1px solid rgba(148,163,184,0.14)",
-              background: "rgba(2,6,23,0.45)",
-              padding: 16,
-            }}
-          >
-            <div style={{ fontWeight: 1000, fontSize: 18 }}>✅ Berhasil!</div>
-            <div style={{ color: "#94a3b8", fontWeight: 800, marginTop: 6 }}>
-              Foto udah ke-upload dan admin panel harusnya langsung kebaca di tab <b>User Gallery</b>.
-            </div>
+          {/* Actions panel */}
+          <aside className="pb-result-side">
+            <h2 className="pb-result-congrats">
+              Foto kamu<br /><em>udah jadi!</em> 🎉
+            </h2>
+            <p className="pb-result-hint">
+              Simpan, download, atau bagikan ke temen-temen kamu!
+            </p>
 
-            {resultUrl && (
-              <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, alignItems: "start" }}>
-                <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid rgba(148,163,184,0.14)", background: "#000" }}>
-                  <img src={resultUrl} alt="result" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                </div>
-                <div>
-                  <a
-                    href={resultUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      display: "inline-block",
-                      padding: "12px 14px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(59,130,246,0.35)",
-                      background: "rgba(59,130,246,0.16)",
-                      color: "#bfdbfe",
-                      fontWeight: 950,
-                      textDecoration: "none",
-                    }}
-                  >
-                    🔗 Open Full Image
-                  </a>
+            <button className="pb-action-btn primary" onClick={downloadImage}>
+              <div className="pb-action-icon">📥</div>
+              <div className="pb-action-text-wrap">
+                <span className="pb-action-title">Download Foto</span>
+                <span className="pb-action-desc">Simpan sebagai file PNG</span>
+              </div>
+            </button>
 
-                  <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
-                    <button
-                      onClick={backToSelect}
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: 14,
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: "rgba(2,6,23,0.55)",
-                        color: "#e5e7eb",
-                        cursor: "pointer",
-                        fontWeight: 950,
-                      }}
-                    >
-                      New Session
-                    </button>
+            <button className="pb-action-btn" onClick={saveToGallery} disabled={savedOk}>
+              <div className="pb-action-icon">☁️</div>
+              <div className="pb-action-text-wrap">
+                <span className="pb-action-title">Simpan ke Galeri</span>
+                <span className="pb-action-desc">Admin bisa lihat di dashboard</span>
+              </div>
+            </button>
 
-                    <button
-                      onClick={() => {
-                        setStep("edit");
-                      }}
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: 14,
-                        border: "1px solid rgba(16,185,129,0.35)",
-                        background: "rgba(16,185,129,0.14)",
-                        color: "#bbf7d0",
-                        cursor: "pointer",
-                        fontWeight: 950,
-                      }}
-                    >
-                      Edit Again
-                    </button>
-                  </div>
-
-                  <div style={{ marginTop: 12, color: "#94a3b8", fontWeight: 800, fontSize: 12, lineHeight: 1.6 }}>
-                    Kalau kamu mau konsep makin “jepreto vibes”, tinggal banyakin template PNG transparan dari Admin Template Manager.
-                  </div>
-                </div>
+            {savedOk && (
+              <div className="pb-saving-badge">
+                ✅ Berhasil disimpan ke galeri!
               </div>
             )}
-          </div>
-        )}
-      </div>
+
+            <div className="pb-divider" />
+
+            <button className="pb-action-btn" onClick={resetSession}>
+              <div className="pb-action-icon">🔄</div>
+              <div className="pb-action-text-wrap">
+                <span className="pb-action-title">Foto Lagi</span>
+                <span className="pb-action-desc">Pilih template baru</span>
+              </div>
+            </button>
+
+            <button
+              className="pb-action-btn"
+              onClick={() => {
+                setCapturedPhotos([]);
+                setCurrentSlotIndex(0);
+                setFinalImage(null);
+                setStage('camera-capture');
+              }}
+            >
+              <div className="pb-action-icon">📸</div>
+              <div className="pb-action-text-wrap">
+                <span className="pb-action-title">Ulangi dengan Template Ini</span>
+                <span className="pb-action-desc">Pakai frame yang sama</span>
+              </div>
+            </button>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
