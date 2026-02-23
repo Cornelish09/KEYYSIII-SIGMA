@@ -2,11 +2,11 @@ import type { ContentConfig } from "./types";
 
 export const DEFAULT_CONFIG: ContentConfig = {
   couple: {
-    herName: "Keyy",
+    herName: "nayaa",
     yourName: "Aku"
   },
   intro: {
-    headline: "Halo, keyy! ✨",
+    headline: "Halo, nayy! ✨",
     subtitle: "Ada sesuatu yang lucu & interaktif buat kamu. Geser-geser dulu ya 😼",
     splineSceneUrl: "" 
   },
