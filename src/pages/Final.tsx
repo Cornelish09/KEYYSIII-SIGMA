@@ -266,7 +266,7 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
         <div className="data-col">
           <div className="header-row">
             <div>
-              <div className="page-sub">yoshyy x keyysi</div>
+              <div className="page-sub">yoshyy x nayysie</div>
               <div className="page-title">Date Plan</div>
             </div>
             <div className="date-input-group">

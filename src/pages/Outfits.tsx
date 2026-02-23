@@ -229,7 +229,7 @@ export function Outfits({ cfg, state, setState }: { cfg: ContentConfig; state: A
 
       {/* HEADER SECTION */}
       <div className="header-section">
-        <div className="header-title">Keyysi Outfit Colour Match</div>
+        <div className="header-title">Nayysie Outfit Colour Match</div>
         <div className="header-subtitle">Pilih kombinasi outfit yang paling cocok untuk cerita kita.</div>
       </div>
 

@@ -114,10 +114,10 @@ export function GameUnlock({
         playSfx("match");
         
         setTiles(prev => prev.map(t => (t.value === cardA.value) ? { ...t, matched: true } : t));
-        setKuromiChat("KERJA BAGUS!! PROUD OF U KEYYY✨");
+        setKuromiChat("KERJA BAGUS!! PROUD OF U NAYY✨");
       } else {
         setTiles(prev => prev.map(t => (t.id === cardA.id || t.id === cardB.id) ? { ...t, revealed: false } : t));
-        setKuromiChat("YAH SALAH.. AYO CARI LAGI KEYY!!🛸");
+        setKuromiChat("YAH SALAH.. AYO CARI LAGI NAYY!!🛸");
       }
       setBusy(false);
     }
@@ -272,7 +272,7 @@ export function GameUnlock({
       <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
         
         <div style={{ textAlign: 'center', marginBottom: '25px' }}>
-          <h1 style={{ fontSize: 'clamp(28px, 5vw, 42px)', fontWeight: 900, margin: 0, background: 'linear-gradient(to right, #fff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 20px rgba(139,92,246,0.8))', letterSpacing: '2px' }}>WELCOME TO KEYYSI PUZZLE</h1>
+          <h1 style={{ fontSize: 'clamp(28px, 5vw, 42px)', fontWeight: 900, margin: 0, background: 'linear-gradient(to right, #fff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 20px rgba(139,92,246,0.8))', letterSpacing: '2px' }}>WELCOME TO NAYYSIE PUZZLE</h1>
           <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '10px' }}>
              <div style={{ background:'rgba(255,255,255,0.1)', padding:'5px 15px', borderRadius:'20px', color:'white', border:'1px solid rgba(255,255,255,0.2)', backdropFilter:'blur(5px)' }}>Moves: <strong>{moves}</strong></div>
              <div style={{ background:'rgba(52, 211, 153, 0.2)', padding:'5px 15px', borderRadius:'20px', color:'#34d399', border:'1px solid rgba(52, 211, 153, 0.4)', backdropFilter:'blur(5px)' }}>Pairs: <strong>{matchedCount}/8</strong></div>
@@ -319,8 +319,8 @@ export function GameUnlock({
               <div style={{ color: '#a78bfa', fontWeight: 'bold', fontSize: '14px', marginBottom: '5px', letterSpacing: '1px' }}>LEVEL COMPLETE</div>
               <h2 className="victory-title">MISSION ACCOMPLISHED!</h2>
               <p className="victory-desc">
-                KAMU SANGAT KEREN KEYYY!! PROUD OF U ♡ <br/>
-                Sekarang kamu bisa lanjut ke inti game ini keyy..
+                KAMU SANGAT KEREN NAYYY!! PROUD OF U ♡ <br/>
+                Sekarang kamu bisa lanjut ke inti game ini nayy..
               </p>
               <div className="victory-stats-row">
                 <div className="stat-badge">Moves <strong>{moves}</strong></div>

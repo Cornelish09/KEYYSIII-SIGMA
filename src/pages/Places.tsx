@@ -229,7 +229,7 @@ export function Places({ cfg, state, setState }: { cfg: ContentConfig; state: Ap
         
         {/* Header di dalam flow scroll */}
         <div className="header-section">
-          <div className="header-title">WELCOME TO KEYYSI PLACE </div>
+          <div className="header-title">WELCOME TO NAYYSIE PLACE </div>
           <div className="header-subtitle">Pilih satu destinasi untuk setiap sesi ya!</div>
         </div>
 

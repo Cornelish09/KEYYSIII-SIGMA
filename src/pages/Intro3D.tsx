@@ -47,7 +47,7 @@ export function Intro3D({
   };
 
   // --- LOGIC TYPEWRITER (ASLI) ---
-  const chatText = `Halo semuanya! kenalin nama dia ${cfg.couple.herName}.. wanita yang ceria, baik, dan lucu (like a strawberry 🍓), i'm such a big fan of her >_<`;
+  const chatText = `Halo semuanya! kenalin nama dia nayaa.. wanita yang ceria, baik, dan lucu (like a strawberry 🍓), i'm such a big fan of her >_<`;
   const [typed, setTyped] = useState("");
 
   useEffect(() => {
