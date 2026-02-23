@@ -306,34 +306,122 @@ export function Admin() {
     return data.secure_url;
   };
 
+  async function getImageSize(file: File): Promise<{ w: number; h: number }> {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+
+      // decode() lebih stabil kalau ada
+      if ("decode" in img) {
+        // @ts-ignore
+        await img.decode();
+        return { w: img.naturalWidth, h: img.naturalHeight };
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Failed to read image"));
+      });
+
+      return { w: img.naturalWidth, h: img.naturalHeight };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function makeDefaultSlots(photoCount: number, w: number, h: number) {
+    const margin = Math.round(Math.min(w, h) * 0.06);
+    const slots: { x: number; y: number; width: number; height: number }[] = [];
+
+    // portrait: stack vertical; landscape: grid 2 columns
+    const isPortrait = h / w >= 1.25;
+
+    if (photoCount === 1) {
+      return [{ x: margin, y: margin, width: w - margin * 2, height: h - margin * 2 }];
+    }
+
+    if (isPortrait) {
+      const gap = margin;
+      const slotH = Math.max(80, Math.floor((h - gap * (photoCount + 1)) / photoCount));
+      const slotW = w - margin * 2;
+
+      for (let i = 0; i < photoCount; i++) {
+        slots.push({
+          x: margin,
+          y: gap + i * (slotH + gap),
+          width: slotW,
+          height: slotH,
+        });
+      }
+      return slots;
+    }
+
+    const cols = 2;
+    const rows = Math.ceil(photoCount / cols);
+    const gap = margin;
+    const slotW = Math.max(120, Math.floor((w - gap * (cols + 1)) / cols));
+    const slotH = Math.max(120, Math.floor((h - gap * (rows + 1)) / rows));
+
+    for (let i = 0; i < photoCount; i++) {
+      const r = Math.floor(i / cols);
+      const c = i % cols;
+      slots.push({
+        x: gap + c * (slotW + gap),
+        y: gap + r * (slotH + gap),
+        width: slotW,
+        height: slotH,
+      });
+    }
+    return slots;
+  }
+
   const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.includes('image/png')) { alert("❌ Hanya file PNG yang diperbolehkan!"); return; }
+    if (!file.type.includes("image/png")) {
+      alert("❌ Hanya file PNG yang diperbolehkan!");
+      return;
+    }
 
     const name = prompt("📝 Nama template (contoh: Valentine Frame):");
     if (!name) return;
-    const photoCountStr = prompt("📸 Jumlah foto (1-4):");
-    const photoCount = parseInt(photoCountStr || "1");
-    if (photoCount < 1 || photoCount > 4) { alert("❌ Jumlah foto harus 1-4!"); return; }
+
+    const photoCountStr = prompt("📸 Jumlah foto (1-9):");
+    const photoCount = parseInt(photoCountStr || "1", 10);
+    if (photoCount < 1 || photoCount > 9) {
+      alert("❌ Jumlah foto harus 1-9!");
+      return;
+    }
 
     setUploadingTemplate(true);
     try {
+      // ✅ 1) baca ukuran PNG asli dari file lokal
+      const { w, h } = await getImageSize(file);
+
+      // ✅ 2) upload ke Cloudinary
       const imageUrl = await uploadTemplateToCloudinary(file);
-      const defaultSlots: PhotoSlot[] = [];
-      for (let i = 0; i < photoCount; i++) {
-        defaultSlots.push({ x: 50, y: 50 + (i * 300), width: 400, height: 250 });
-      }
-      
+
+      // ✅ 3) bikin slot default yang proporsional sama ukuran
+      const defaultSlots = makeDefaultSlots(photoCount, w, h);
+
       const { doc, setDoc } = await import("firebase/firestore");
       const templateId = Date.now().toString();
+
       const newTemplate: PhotoTemplate = {
-        id: templateId, name, imageUrl, photoCount, slots: defaultSlots,
-        canvasWidth: 707, canvasHeight: 2000, createdAt: new Date().toISOString()
+        id: templateId,
+        name,
+        imageUrl,
+        photoCount,
+        slots: defaultSlots,
+        canvasWidth: w,          // ✅ FIX
+        canvasHeight: h,         // ✅ FIX
+        createdAt: new Date().toISOString(),
       };
 
       await setDoc(doc(db, "photobox_templates", templateId), newTemplate);
-      alert("✅ Template berhasil di-upload!");
+
+      alert(`✅ Template uploaded!\nUkuran: ${w}x${h}\nSekarang slot bakal ngepas sama PNG.`);
     } catch (err) {
       console.error(err);
       alert("❌ Gagal upload template");
