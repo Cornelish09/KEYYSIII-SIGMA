@@ -18,797 +18,682 @@ type PhotoTemplate = {
   canvasHeight: number;
   createdAt: string;
   tags?: string[];
-  category?: string;
 };
 
 type CapturedPhoto = { slotIndex: number; dataUrl: string };
 type Stage = 'template-selection' | 'camera-capture' | 'preview' | 'result';
-type FilterCount = 'all' | '2' | '3' | '4' | '6';
 
 // ==========================================
-// 🎨 STYLES (injected once)
+// 🔧 HELPERS
 // ==========================================
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;0,9..144,900;1,9..144,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
-  :root {
-    --cream: #FDF6EE;
-    --cream2: #F5EDE0;
-    --coral: #FF6B6B;
-    --coral-dark: #E85555;
-    --orange: #FF8C42;
-    --gold: #F4A261;
-    --dark: #1A1208;
-    --dark2: #2D2112;
-    --mid: #7A6652;
-    --light: #C4A882;
-    --white: #FFFCF8;
-    --shadow: rgba(90,60,20,0.15);
-    --shadow-strong: rgba(90,60,20,0.28);
-    --font-display: 'Fraunces', Georgia, serif;
-    --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
-  }
-
-  .pb-root {
-    position: fixed; inset: 0;
-    background: var(--cream);
-    font-family: var(--font-body);
-    overflow: hidden;
-    display: flex; flex-direction: column;
-  }
-
-  /* Grain overlay */
-  .pb-root::after {
-    content: '';
-    position: fixed; inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-    pointer-events: none; z-index: 999;
-    opacity: 0.4;
-  }
-
-  /* ====== TOPBAR ====== */
-  .pb-topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 32px;
-    background: var(--white);
-    border-bottom: 1.5px solid var(--cream2);
-    z-index: 100; flex-shrink: 0;
-    box-shadow: 0 2px 20px var(--shadow);
-  }
-
-  .pb-logo {
-    font-family: var(--font-display);
-    font-size: 26px; font-weight: 900;
-    color: var(--dark);
-    letter-spacing: -0.5px;
-    display: flex; align-items: center; gap: 10px;
-  }
-
-  .pb-logo-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--coral);
-    display: inline-block; margin-bottom: 2px;
-  }
-
-  .pb-back-btn {
-    display: flex; align-items: center; gap: 8px;
-    padding: 9px 20px;
-    border: 1.5px solid var(--cream2);
-    background: var(--white);
-    border-radius: 100px;
-    font-family: var(--font-body);
-    font-weight: 600; font-size: 14px;
-    color: var(--dark2);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .pb-back-btn:hover { border-color: var(--coral); color: var(--coral); transform: translateX(-2px); }
-
-  /* ====== SCROLL AREA ====== */
-  .pb-scroll {
-    flex: 1; overflow-y: auto; overflow-x: hidden;
-    padding: 0;
-    scrollbar-width: thin;
-    scrollbar-color: var(--cream2) transparent;
-  }
-
-  /* ====== SECTION HEADERS ====== */
-  .pb-hero {
-    padding: 48px 40px 32px;
-    background: linear-gradient(180deg, #FDF6EE 0%, #F5EDE0 100%);
-    border-bottom: 1px solid var(--cream2);
-    text-align: center;
-  }
-
-  .pb-hero-tag {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 6px 16px;
-    background: var(--coral); color: white;
-    border-radius: 100px; font-size: 12px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 1px;
-    margin-bottom: 20px;
-  }
-
-  .pb-hero-title {
-    font-family: var(--font-display);
-    font-size: clamp(32px, 5vw, 54px);
-    font-weight: 900; color: var(--dark);
-    line-height: 1.1; margin: 0 0 16px;
-  }
-
-  .pb-hero-title em {
-    font-style: italic; color: var(--coral);
-  }
-
-  .pb-hero-sub {
-    font-size: 16px; color: var(--mid);
-    font-weight: 500; margin: 0;
-  }
-
-  /* ====== FILTER BAR ====== */
-  .pb-filterbar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 20px 40px;
-    background: var(--white);
-    border-bottom: 1px solid var(--cream2);
-    flex-wrap: wrap;
-    position: sticky; top: 0; z-index: 50;
-    box-shadow: 0 2px 12px var(--shadow);
-  }
-
-  .pb-filter-label {
-    font-size: 13px; font-weight: 700; color: var(--mid);
-    text-transform: uppercase; letter-spacing: 0.5px;
-    white-space: nowrap;
-  }
-
-  .pb-filter-pills {
-    display: flex; gap: 8px; flex-wrap: wrap;
-  }
-
-  .pb-pill {
-    padding: 7px 18px;
-    border-radius: 100px;
-    border: 1.5px solid var(--cream2);
-    background: var(--white);
-    font-size: 13px; font-weight: 600;
-    color: var(--mid); cursor: pointer;
-    transition: all 0.2s;
-  }
-  .pb-pill:hover { border-color: var(--coral); color: var(--coral); }
-  .pb-pill.active {
-    background: var(--dark); color: white;
-    border-color: var(--dark);
-  }
-
-  .pb-search {
-    margin-left: auto;
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 16px;
-    border: 1.5px solid var(--cream2);
-    border-radius: 100px;
-    background: var(--cream);
-    min-width: 220px;
-  }
-
-  .pb-search input {
-    border: none; background: transparent;
-    font-family: var(--font-body);
-    font-size: 14px; color: var(--dark2);
-    outline: none; width: 100%;
-  }
-  .pb-search input::placeholder { color: var(--light); }
-
-  /* ====== TEMPLATE GRID ====== */
-  .pb-template-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 24px;
-    padding: 32px 40px 60px;
-    max-width: 1400px;
-    margin: 0 auto;
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  .pb-template-card {
-    background: var(--white);
-    border-radius: 20px;
-    overflow: hidden;
-    cursor: pointer;
-    border: 2px solid transparent;
-    transition: all 0.25s;
-    box-shadow: 0 4px 20px var(--shadow);
-    position: relative;
-  }
-  .pb-template-card:hover {
-    transform: translateY(-6px);
-    border-color: var(--coral);
-    box-shadow: 0 16px 40px var(--shadow-strong);
-  }
-
-  .pb-card-badge {
-    position: absolute; top: 14px; left: 14px; z-index: 5;
-    display: flex; align-items: center; gap: 5px;
-    padding: 5px 12px;
-    background: rgba(255,255,255,0.95);
-    backdrop-filter: blur(8px);
-    border-radius: 100px;
-    font-size: 12px; font-weight: 700; color: var(--dark2);
-    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
-  }
-
-  .pb-card-preview {
-    width: 100%; height: 300px;
-    background: repeating-conic-gradient(#EFE5D8 0% 25%, #F5EDE0 0% 50%) 0 0 / 16px 16px;
-    display: flex; align-items: center; justify-content: center;
-    position: relative; overflow: hidden;
-  }
-  .pb-card-preview img {
-    width: 100%; height: 100%;
-    object-fit: contain;
-    transition: transform 0.3s;
-  }
-  .pb-template-card:hover .pb-card-preview img { transform: scale(1.03); }
-
-  .pb-card-hover-btn {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(26,18,8,0.6);
-    opacity: 0; transition: opacity 0.25s;
-    backdrop-filter: blur(4px);
-  }
-  .pb-template-card:hover .pb-card-hover-btn { opacity: 1; }
-
-  .pb-select-btn {
-    padding: 12px 28px;
-    background: var(--coral); color: white;
-    border: none; border-radius: 100px;
-    font-family: var(--font-body);
-    font-size: 15px; font-weight: 700;
-    cursor: pointer;
-    transform: translateY(8px);
-    transition: transform 0.25s;
-  }
-  .pb-template-card:hover .pb-select-btn { transform: translateY(0); }
-
-  .pb-card-info {
-    padding: 16px 20px 20px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
-
-  .pb-card-name {
-    font-size: 16px; font-weight: 700; color: var(--dark);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-
-  .pb-card-tags {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
-  }
-  .pb-tag {
-    padding: 3px 10px; border-radius: 100px;
-    background: var(--cream2); color: var(--mid);
-    font-size: 11px; font-weight: 600;
-  }
-
-  .pb-card-arrow {
-    width: 36px; height: 36px; border-radius: 50%;
-    background: var(--coral); color: white;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; flex-shrink: 0;
-    transition: transform 0.2s;
-  }
-  .pb-template-card:hover .pb-card-arrow { transform: scale(1.1) rotate(45deg); }
-
-  /* ====== EMPTY STATE ====== */
-  .pb-empty {
-    grid-column: 1/-1;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 80px 40px; text-align: center; color: var(--mid);
-  }
-  .pb-empty-icon { font-size: 64px; margin-bottom: 20px; opacity: 0.5; }
-  .pb-empty h3 { font-family: var(--font-display); font-size: 24px; color: var(--dark2); margin: 0 0 8px; }
-  .pb-empty p { margin: 0; font-size: 14px; }
-
-  /* ====== CAMERA STAGE ====== */
-  .pb-camera-layout {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 0;
-    height: calc(100vh - 65px);
-    overflow: hidden;
-  }
-
-  .pb-camera-main {
-    position: relative;
-    background: #0D0D0D;
-    display: flex; flex-direction: column;
-    overflow: hidden;
-  }
-
-  .pb-camera-topbar {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
-    padding: 20px 24px;
-    display: flex; align-items: center; justify-content: space-between;
-    background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
-  }
-
-  .pb-camera-title {
-    font-family: var(--font-display); font-size: 20px; font-weight: 700;
-    color: white; italic; font-style: italic;
-  }
-
-  .pb-camera-frame-wrapper {
-    flex: 1; position: relative;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
-  }
-
-  .pb-webcam {
-    width: 100%; height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1);
-  }
-
-  .pb-frame-overlay {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    pointer-events: none; z-index: 10;
-  }
-  .pb-frame-overlay img {
-    width: 100%; height: 100%;
-    object-fit: contain;
-  }
-
-  /* Countdown ring overlay */
-  .pb-countdown-overlay {
-    position: absolute; inset: 0; z-index: 30;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(2px);
-  }
-
-  .pb-countdown-ring {
-    position: relative; width: 160px; height: 160px;
-    display: flex; align-items: center; justify-content: center;
-  }
-
-  .pb-countdown-ring svg {
-    position: absolute; inset: 0;
-    transform: rotate(-90deg);
-  }
-
-  .pb-countdown-ring-bg { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 6; }
-  .pb-countdown-ring-fill {
-    fill: none; stroke: var(--coral);
-    stroke-width: 6;
-    stroke-linecap: round;
-    transition: stroke-dashoffset 1s linear;
-  }
-
-  .pb-countdown-num {
-    font-family: var(--font-display);
-    font-size: 72px; font-weight: 900;
-    color: white; line-height: 1;
-    animation: cntPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  }
-
-  @keyframes cntPop {
-    0% { transform: scale(0.4); opacity: 0; }
-    100% { transform: scale(1); opacity: 1; }
-  }
-
-  .pb-countdown-hint {
-    margin-top: 20px; color: rgba(255,255,255,0.7);
-    font-size: 15px; font-weight: 600; letter-spacing: 0.5px;
-  }
-
-  .pb-flash { position: absolute; inset: 0; z-index: 50; background: white; animation: flashOut 0.35s ease-out forwards; }
-  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
-
-  /* Camera bottom controls */
-  .pb-camera-controls {
-    position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
-    padding: 24px 32px 32px;
-    background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
-    display: flex; align-items: center; justify-content: center; gap: 24px;
-  }
-
-  .pb-timer-group {
-    display: flex; gap: 8px;
-  }
-
-  .pb-timer-btn {
-    padding: 8px 14px; border-radius: 100px;
-    border: 1.5px solid rgba(255,255,255,0.3);
-    background: rgba(255,255,255,0.1);
-    color: white; font-family: var(--font-body);
-    font-size: 13px; font-weight: 700; cursor: pointer;
-    transition: all 0.2s;
-    backdrop-filter: blur(8px);
-  }
-  .pb-timer-btn:hover { border-color: white; background: rgba(255,255,255,0.2); }
-  .pb-timer-btn.active { background: var(--coral); border-color: var(--coral); }
-
-  .pb-capture-btn {
-    width: 76px; height: 76px; border-radius: 50%;
-    border: 4px solid white;
-    background: white;
-    cursor: pointer; position: relative;
-    transition: transform 0.15s, box-shadow 0.15s;
-    box-shadow: 0 0 0 0 rgba(255,107,107,0.5);
-  }
-  .pb-capture-btn::after {
-    content: '';
-    position: absolute; inset: 6px;
-    border-radius: 50%;
-    background: var(--coral);
-    transition: transform 0.15s;
-  }
-  .pb-capture-btn:hover { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255,107,107,0.25); }
-  .pb-capture-btn:active::after { transform: scale(0.88); }
-  .pb-capture-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-  /* ====== CAMERA SIDEBAR ====== */
-  .pb-sidebar {
-    background: var(--white);
-    border-left: 1.5px solid var(--cream2);
-    display: flex; flex-direction: column;
-    overflow-y: auto;
-  }
-
-  .pb-sidebar-header {
-    padding: 24px 20px 16px;
-    border-bottom: 1px solid var(--cream2);
-  }
-
-  .pb-sidebar-title {
-    font-family: var(--font-display); font-size: 18px; font-weight: 700;
-    color: var(--dark); margin: 0 0 4px;
-  }
-
-  .pb-sidebar-sub { font-size: 13px; color: var(--mid); margin: 0; }
-
-  /* Progress steps */
-  .pb-progress-steps {
-    padding: 20px;
-    display: flex; flex-direction: column; gap: 12px;
-    flex: 1;
-  }
-
-  .pb-step {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 2px solid transparent;
-    transition: all 0.25s;
-  }
-  .pb-step.done { background: #F0FDF4; border-color: #86EFAC; }
-  .pb-step.active { background: #FFF5F5; border-color: var(--coral); }
-  .pb-step.pending { background: var(--cream); }
-
-  .pb-step-num {
-    width: 32px; height: 32px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 800; flex-shrink: 0;
-  }
-  .pb-step.done .pb-step-num { background: #22C55E; color: white; }
-  .pb-step.active .pb-step-num { background: var(--coral); color: white; animation: pulseSoft 1.5s infinite; }
-  .pb-step.pending .pb-step-num { background: var(--cream2); color: var(--light); }
-
-  @keyframes pulseSoft {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.4); }
-    50% { box-shadow: 0 0 0 6px rgba(255,107,107,0); }
-  }
-
-  .pb-step-thumb {
-    width: 48px; height: 48px; border-radius: 10px;
-    overflow: hidden; flex-shrink: 0;
-    background: var(--cream2);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .pb-step-thumb img { width: 100%; height: 100%; object-fit: cover; }
-  .pb-step-thumb-empty { font-size: 18px; opacity: 0.4; }
-
-  .pb-step-label { font-size: 13px; font-weight: 600; color: var(--dark2); }
-  .pb-step-status { font-size: 11px; color: var(--mid); margin-top: 2px; }
-
-  /* Sidebar footer */
-  .pb-sidebar-footer {
-    padding: 20px;
-    border-top: 1px solid var(--cream2);
-    display: flex; flex-direction: column; gap: 10px;
-  }
-
-  .pb-btn-full {
-    width: 100%; padding: 12px;
-    border-radius: 14px; border: none;
-    font-family: var(--font-body);
-    font-size: 14px; font-weight: 700;
-    cursor: pointer; transition: all 0.2s;
-  }
-  .pb-btn-primary { background: var(--coral); color: white; }
-  .pb-btn-primary:hover { background: var(--coral-dark); transform: translateY(-1px); }
-  .pb-btn-ghost { background: transparent; color: var(--mid); border: 1.5px solid var(--cream2); }
-  .pb-btn-ghost:hover { border-color: var(--mid); color: var(--dark2); }
-
-  /* ====== PREVIEW STAGE ====== */
-  .pb-preview-layout {
-    display: grid;
-    grid-template-columns: 1fr 360px;
-    gap: 0;
-    height: calc(100vh - 65px);
-    overflow: hidden;
-  }
-
-  .pb-preview-main {
-    padding: 40px;
-    overflow-y: auto;
-    background: var(--cream);
-  }
-
-  .pb-preview-title {
-    font-family: var(--font-display); font-size: 36px; font-weight: 900;
-    color: var(--dark); margin: 0 0 8px;
-  }
-  .pb-preview-title em { color: var(--coral); font-style: italic; }
-  .pb-preview-sub { color: var(--mid); font-size: 15px; margin: 0 0 32px; }
-
-  .pb-preview-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 20px;
-  }
-
-  .pb-preview-card {
-    background: white; border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px var(--shadow);
-    position: relative;
-  }
-
-  .pb-preview-card-img {
-    width: 100%; aspect-ratio: 3/4;
-    object-fit: cover;
-    display: block;
-    transform: scaleX(-1);
-  }
-
-  .pb-preview-card-overlay {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.5);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: opacity 0.2s;
-    backdrop-filter: blur(4px);
-  }
-  .pb-preview-card:hover .pb-preview-card-overlay { opacity: 1; }
-
-  .pb-retake-btn {
-    padding: 10px 20px; border-radius: 100px;
-    background: white; color: var(--coral);
-    border: none; font-family: var(--font-body);
-    font-size: 13px; font-weight: 700; cursor: pointer;
-    transition: all 0.2s;
-  }
-  .pb-retake-btn:hover { background: var(--coral); color: white; }
-
-  .pb-preview-card-num {
-    position: absolute; top: 10px; left: 10px;
-    width: 28px; height: 28px; border-radius: 50%;
-    background: white; color: var(--dark2);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 800;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  }
-
-  /* Preview side panel */
-  .pb-preview-side {
-    background: var(--white);
-    border-left: 1.5px solid var(--cream2);
-    padding: 32px 24px;
-    display: flex; flex-direction: column; gap: 20px;
-    overflow-y: auto;
-  }
-
-  .pb-composite-preview {
-    width: 100%;
-    border-radius: 16px; overflow: hidden;
-    background: repeating-conic-gradient(#EFE5D8 0% 25%, #F5EDE0 0% 50%) 0 0 / 12px 12px;
-    aspect-ratio: 2/3;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 40px; color: var(--light);
-  }
-
-  .pb-composite-preview img {
-    width: 100%; height: 100%; object-fit: contain;
-  }
-
-  /* ====== RESULT STAGE ====== */
-  .pb-result-layout {
-    display: grid;
-    grid-template-columns: 1fr 360px;
-    gap: 0;
-    height: calc(100vh - 65px);
-    overflow: hidden;
-  }
-
-  .pb-result-main {
-    background: var(--dark);
-    display: flex; align-items: center; justify-content: center;
-    padding: 40px; overflow-y: auto;
-    position: relative;
-  }
-
-  .pb-result-main::before {
-    content: '';
-    position: absolute; inset: 0;
-    background: radial-gradient(ellipse at center, rgba(255,107,107,0.15) 0%, transparent 70%);
-    pointer-events: none;
-  }
-
-  .pb-result-img-wrapper {
-    position: relative; max-width: 400px; width: 100%;
-    filter: drop-shadow(0 30px 60px rgba(0,0,0,0.8));
-    animation: resultReveal 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-  }
-
-  @keyframes resultReveal {
-    0% { transform: scale(0.7) rotate(-3deg); opacity: 0; }
-    100% { transform: scale(1) rotate(0deg); opacity: 1; }
-  }
-
-  .pb-result-img-wrapper img {
-    width: 100%; border-radius: 4px; display: block;
-  }
-
-  /* Polaroid tape */
-  .pb-tape {
-    position: absolute; top: -14px; left: 50%;
-    transform: translateX(-50%) rotate(-1.5deg);
-    width: 80px; height: 28px;
-    background: rgba(255,249,196,0.75);
-    backdrop-filter: blur(4px);
-    border-radius: 3px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  }
-
-  .pb-result-side {
-    background: var(--white);
-    border-left: 1.5px solid var(--cream2);
-    padding: 40px 28px;
-    display: flex; flex-direction: column; gap: 16px;
-    overflow-y: auto;
-  }
-
-  .pb-result-congrats {
-    font-family: var(--font-display);
-    font-size: 32px; font-weight: 900; color: var(--dark);
-    line-height: 1.2; margin: 0 0 4px;
-  }
-  .pb-result-congrats em { color: var(--coral); font-style: italic; }
-
-  .pb-result-hint { font-size: 14px; color: var(--mid); margin: 0 0 24px; }
-
-  .pb-action-btn {
-    display: flex; align-items: center; gap: 12px;
-    padding: 16px 20px;
-    border-radius: 16px; border: 2px solid transparent;
-    background: var(--cream);
-    font-family: var(--font-body);
-    font-size: 15px; font-weight: 700;
-    color: var(--dark2); cursor: pointer;
-    transition: all 0.2s; width: 100%;
-    text-align: left;
-  }
-  .pb-action-btn:hover { border-color: var(--coral); background: #FFF5F5; }
-  .pb-action-btn.primary { background: var(--coral); color: white; border-color: var(--coral); }
-  .pb-action-btn.primary:hover { background: var(--coral-dark); }
-
-  .pb-action-icon {
-    width: 40px; height: 40px; border-radius: 12px;
-    background: rgba(255,255,255,0.25);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px; flex-shrink: 0;
-  }
-  .pb-action-btn:not(.primary) .pb-action-icon {
-    background: var(--cream2);
-  }
-
-  .pb-action-text-wrap { flex: 1; }
-  .pb-action-title { display: block; }
-  .pb-action-desc { font-size: 12px; font-weight: 400; opacity: 0.7; display: block; margin-top: 2px; }
-
-  .pb-divider { height: 1px; background: var(--cream2); margin: 4px 0; }
-
-  /* Saving indicator */
-  .pb-saving-badge {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 16px; border-radius: 12px;
-    background: #F0FDF4; border: 1.5px solid #86EFAC;
-    font-size: 13px; font-weight: 600; color: #16A34A;
-    animation: fadeIn 0.3s;
-  }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
-  /* ====== LOADING ====== */
-  .pb-generating {
-    position: fixed; inset: 0; z-index: 200;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    background: rgba(26,18,8,0.85);
-    backdrop-filter: blur(8px);
-  }
-
-  .pb-spinner {
-    width: 56px; height: 56px; border-radius: 50%;
-    border: 4px solid rgba(255,255,255,0.1);
-    border-top-color: var(--coral);
-    animation: spin 0.8s linear infinite;
-    margin-bottom: 20px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .pb-gen-text {
-    color: white; font-family: var(--font-display);
-    font-size: 22px; font-weight: 700; font-style: italic;
-  }
-
-  /* ====== RESPONSIVE ====== */
-  @media (max-width: 900px) {
-    .pb-camera-layout,
-    .pb-preview-layout,
-    .pb-result-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .pb-sidebar,
-    .pb-preview-side,
-    .pb-result-side {
-      height: auto; max-height: 50vh;
-      border-left: none; border-top: 1.5px solid var(--cream2);
-    }
-
-    .pb-camera-layout {
-      grid-template-rows: 1fr auto;
-    }
-    .pb-camera-main { height: 55vh; }
-
-    .pb-template-grid { padding: 20px; gap: 16px; }
-    .pb-filterbar { padding: 12px 20px; }
-    .pb-hero { padding: 32px 20px 20px; }
-    .pb-result-main { min-height: 55vh; }
-    .pb-result-img-wrapper { max-width: 260px; }
-
-    .pb-topbar { padding: 12px 20px; }
-    .pb-hero-title { font-size: 28px; }
-  }
-`;
+function getAspectLabel(w: number, h: number): string {
+  if (w === h) return '1:1';
+  const ratio = w / h;
+  if (ratio > 1.7) return '16:9';
+  if (ratio > 1.2) return '4:3';
+  if (ratio < 0.6) return '9:16';
+  if (ratio < 0.8) return '3:4';
+  const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+  const g = gcd(w, h);
+  return `${w / g}:${h / g}`;
+}
+
+function getOrientation(w: number, h: number): 'portrait' | 'landscape' | 'square' {
+  if (w < h) return 'portrait';
+  if (w > h) return 'landscape';
+  return 'square';
+}
+
+/**
+ * THE CORE FIX: Draw image into a canvas rect using cover-fit logic.
+ * This crops the source to match the destination ratio — no stretching!
+ * Also mirrors horizontally to correct selfie-cam flip.
+ */
+function drawCoverFit(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  dx: number, dy: number, dw: number, dh: number,
+  mirror = true
+) {
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) return;
+
+  const srcRatio = srcW / srcH;
+  const dstRatio = dw / dh;
+
+  let sx = 0, sy = 0, sw = srcW, sh = srcH;
+
+  if (srcRatio > dstRatio) {
+    // Source is wider — crop left and right
+    sw = srcH * dstRatio;
+    sx = (srcW - sw) / 2;
+  } else {
+    // Source is taller — crop top and bottom
+    sh = srcW / dstRatio;
+    sy = (srcH - sh) / 2;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(dx, dy, dw, dh);
+  ctx.clip();
+
+  if (mirror) {
+    ctx.translate(dx + dw, dy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+  } else {
+    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+  }
+
+  ctx.restore();
+}
 
 // ==========================================
-// 🔢 SVG COUNTDOWN RING
+// 🔢 COUNTDOWN RING
 // ==========================================
 function CountdownRing({ value, max }: { value: number; max: number }) {
   const r = 66;
   const circ = 2 * Math.PI * r;
-  const progress = value / max;
-  const offset = circ * (1 - progress);
-
+  const offset = circ * (1 - value / max);
   return (
-    <div className="pb-countdown-ring">
-      <svg width="160" height="160" viewBox="0 0 160 160">
-        <circle className="pb-countdown-ring-bg" cx="80" cy="80" r={r} />
+    <div style={{
+      position: 'relative', width: 160, height: 160,
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }}>
+      <svg width="160" height="160" viewBox="0 0 160 160"
+        style={{ position: 'absolute', inset: 0, transform: 'rotate(-90deg)' }}>
+        <circle cx="80" cy="80" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6" />
         <circle
-          className="pb-countdown-ring-fill"
-          cx="80" cy="80" r={r}
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
+          cx="80" cy="80" r={r} fill="none"
+          stroke="#818CF8" strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 1s linear' }}
         />
       </svg>
-      <span key={value} className="pb-countdown-num">{value}</span>
+      <span
+        key={value}
+        style={{
+          fontFamily: "'Syne', sans-serif",
+          fontSize: 72, fontWeight: 900, color: 'white',
+          lineHeight: 1, position: 'relative', zIndex: 2,
+          animation: 'pbPop 0.4s cubic-bezier(0.175,0.885,0.32,1.275)'
+        }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
+
+// ==========================================
+// 🎨 CSS
+// ==========================================
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
+
+  :root {
+    --pb-bg:      #04040E;
+    --pb-bg2:     #08081A;
+    --pb-bg3:     #0E0E22;
+    --pb-surf:    #101024;
+    --pb-surf2:   #161630;
+    --pb-bdr:     rgba(99,102,241,0.18);
+    --pb-bdr2:    rgba(99,102,241,0.08);
+    --pb-blue:    #6366F1;
+    --pb-blue2:   #818CF8;
+    --pb-purple:  #7C3AED;
+    --pb-purple2: #A78BFA;
+    --pb-glow:    rgba(99,102,241,0.3);
+    --pb-text:    #E8E8F8;
+    --pb-text2:   #9090BB;
+    --pb-text3:   #4A4A88;
+    --pbf-d: 'Syne', sans-serif;
+    --pbf-b: 'Space Grotesk', sans-serif;
+  }
+
+  .pb-root {
+    position: fixed; inset: 0;
+    background: var(--pb-bg);
+    font-family: var(--pbf-b);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    color: var(--pb-text);
+  }
+  .pb-root::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(ellipse 70% 50% at 15% 0%, rgba(99,102,241,0.13) 0%, transparent 65%),
+      radial-gradient(ellipse 50% 40% at 85% 100%, rgba(124,58,237,0.1) 0%, transparent 65%);
+  }
+
+  @keyframes pbPop {
+    0% { transform: scale(0.3); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes pbFadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pbReveal {
+    0%   { transform: scale(0.75) rotate(-4deg); opacity: 0; }
+    100% { transform: scale(1) rotate(0); opacity: 1; }
+  }
+  @keyframes pbSpin { to { transform: rotate(360deg); } }
+  @keyframes pbPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.45); }
+    50%     { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+  }
+  @keyframes pbFlash {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* ── TOP BAR ── */
+  .pb-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px; height: 58px;
+    background: rgba(4,4,14,0.9); backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--pb-bdr);
+    z-index: 100; flex-shrink: 0; position: relative;
+  }
+  .pb-logo {
+    font-family: var(--pbf-d); font-size: 21px; font-weight: 800;
+    background: linear-gradient(135deg, var(--pb-blue2), var(--pb-purple2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    display: flex; align-items: center; gap: 10px; letter-spacing: -0.5px;
+  }
+  .pb-logo-ico {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+    box-shadow: 0 4px 16px var(--pb-glow); flex-shrink: 0;
+  }
+  .pb-topbar-btns { display: flex; gap: 8px; }
+  .pb-btn-ghost-sm {
+    padding: 7px 15px; border-radius: 8px;
+    border: 1px solid var(--pb-bdr); background: var(--pb-surf);
+    font-family: var(--pbf-b); font-size: 13px; font-weight: 600;
+    color: var(--pb-text2); cursor: pointer; transition: all 0.16s;
+  }
+  .pb-btn-ghost-sm:hover { border-color: var(--pb-blue); color: var(--pb-blue2); }
+
+  /* ── SCROLL ── */
+  .pb-scroll {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin; scrollbar-color: var(--pb-surf2) transparent;
+    position: relative; z-index: 1;
+  }
+
+  /* ── HERO ── */
+  .pb-hero {
+    padding: 52px 44px 36px; text-align: center;
+    background: linear-gradient(180deg, rgba(99,102,241,0.06) 0%, transparent 100%);
+    border-bottom: 1px solid var(--pb-bdr2);
+  }
+  .pb-hero-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 14px; border-radius: 100px;
+    background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3);
+    font-size: 11px; font-weight: 700; color: var(--pb-blue2);
+    text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 20px;
+  }
+  .pb-hero-title {
+    font-family: var(--pbf-d); font-size: clamp(28px, 4.5vw, 52px);
+    font-weight: 800; color: var(--pb-text); line-height: 1.1;
+    margin: 0 0 14px; letter-spacing: -1px;
+  }
+  .pb-hero-title span {
+    background: linear-gradient(135deg, var(--pb-blue2), var(--pb-purple2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .pb-hero-sub { font-size: 15px; color: var(--pb-text2); margin: 0; font-weight: 500; }
+
+  /* ── FILTER BAR ── */
+  .pb-filters {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(4,4,14,0.95); backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--pb-bdr);
+    padding: 13px 44px;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  .pb-filter-group { display: flex; align-items: center; gap: 7px; }
+  .pb-filter-label {
+    font-size: 10px; font-weight: 700; color: var(--pb-text3);
+    text-transform: uppercase; letter-spacing: 1px; white-space: nowrap;
+  }
+  .pb-pill {
+    padding: 5px 13px; border-radius: 7px;
+    border: 1px solid var(--pb-bdr); background: transparent;
+    font-family: var(--pbf-b); font-size: 12px; font-weight: 600;
+    color: var(--pb-text2); cursor: pointer; transition: all 0.14s;
+  }
+  .pb-pill:hover { border-color: var(--pb-blue); color: var(--pb-blue2); }
+  .pb-pill.active {
+    background: rgba(99,102,241,0.18); border-color: var(--pb-blue); color: var(--pb-blue2);
+  }
+  .pb-search-box {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border: 1px solid var(--pb-bdr);
+    border-radius: 9px; background: var(--pb-surf); min-width: 200px;
+  }
+  .pb-search-box input {
+    border: none; background: transparent; font-family: var(--pbf-b);
+    font-size: 13px; color: var(--pb-text); outline: none; width: 100%;
+  }
+  .pb-search-box input::placeholder { color: var(--pb-text3); }
+
+  /* ── TEMPLATE GRID ── */
+  .pb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+    gap: 18px; padding: 26px 44px 56px;
+    max-width: 1440px; margin: 0 auto;
+    width: 100%; box-sizing: border-box;
+  }
+  .pb-tcard {
+    background: var(--pb-surf); border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--pb-bdr); cursor: pointer;
+    transition: all 0.22s;
+    animation: pbFadeUp 0.4s ease both;
+    position: relative;
+  }
+  .pb-tcard:hover {
+    transform: translateY(-5px); border-color: var(--pb-blue);
+    box-shadow: 0 12px 40px rgba(99,102,241,0.22), 0 0 0 1px rgba(99,102,241,0.35);
+  }
+  .pb-tcard-badges {
+    position: absolute; top: 10px; left: 10px; right: 10px; z-index: 5;
+    display: flex; justify-content: space-between; gap: 6px;
+  }
+  .pb-tcard-badge {
+    padding: 4px 10px; border-radius: 6px;
+    background: rgba(4,4,14,0.82); backdrop-filter: blur(8px);
+    font-size: 11px; font-weight: 700; color: var(--pb-blue2);
+    border: 1px solid rgba(99,102,241,0.3);
+  }
+  .pb-tcard-ratio {
+    padding: 4px 10px; border-radius: 6px;
+    background: rgba(124,58,237,0.18); backdrop-filter: blur(8px);
+    font-size: 11px; font-weight: 700; color: var(--pb-purple2);
+    border: 1px solid rgba(124,58,237,0.3);
+  }
+  .pb-tcard-img-wrap {
+    width: 100%;
+    background: repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  .pb-tcard-img-wrap img {
+    width: 100%; height: 100%;
+    object-fit: contain; display: block; transition: transform 0.3s;
+  }
+  .pb-tcard:hover .pb-tcard-img-wrap img { transform: scale(1.04); }
+  .pb-tcard-hover {
+    position: absolute; inset: 0;
+    background: rgba(4,4,14,0.68); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.22s;
+  }
+  .pb-tcard:hover .pb-tcard-hover { opacity: 1; }
+  .pb-tcard-cta {
+    padding: 10px 22px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    border: none; font-family: var(--pbf-b); font-size: 13px; font-weight: 700;
+    color: white; cursor: pointer;
+    transform: translateY(8px); transition: transform 0.22s;
+    box-shadow: 0 4px 20px var(--pb-glow);
+  }
+  .pb-tcard:hover .pb-tcard-cta { transform: translateY(0); }
+  .pb-tcard-footer {
+    padding: 12px 14px;
+    border-top: 1px solid var(--pb-bdr2);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .pb-tcard-name {
+    font-size: 13px; font-weight: 700; color: var(--pb-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+  }
+  .pb-tcard-meta { font-size: 11px; color: var(--pb-text3); margin-top: 3px; }
+  .pb-tcard-arr {
+    width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0;
+    background: rgba(99,102,241,0.12); color: var(--pb-blue2);
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+    transition: all 0.2s;
+  }
+  .pb-tcard:hover .pb-tcard-arr { background: var(--pb-blue); color: white; transform: rotate(45deg); }
+
+  /* Empty */
+  .pb-empty {
+    grid-column: 1/-1; padding: 80px 40px;
+    text-align: center; color: var(--pb-text2);
+    animation: pbFadeUp 0.4s ease;
+  }
+  .pb-empty-ico { font-size: 52px; opacity: 0.25; margin-bottom: 16px; }
+  .pb-empty h3 { font-family: var(--pbf-d); color: var(--pb-text); margin: 0 0 8px; font-size: 20px; }
+  .pb-empty p { margin: 0; font-size: 13px; }
+
+  /* ── CAMERA STAGE ── */
+  .pb-cam-layout {
+    flex: 1; display: grid; grid-template-columns: 1fr 290px; overflow: hidden;
+  }
+  .pb-cam-main {
+    position: relative; background: #000;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .pb-cam-topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+    padding: 14px 20px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.82) 0%, transparent 100%);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .pb-cam-label {
+    font-family: var(--pbf-d); font-size: 17px; font-weight: 800;
+    color: white; letter-spacing: -0.3px;
+  }
+  .pb-timer-group { display: flex; gap: 6px; align-items: center; }
+  .pb-timer-lbl { font-size: 10px; color: rgba(255,255,255,0.35); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .pb-timer-btn {
+    padding: 5px 12px; border-radius: 7px;
+    border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.07);
+    font-family: var(--pbf-b); font-size: 12px; font-weight: 700;
+    color: rgba(255,255,255,0.65); cursor: pointer; transition: all 0.14s;
+    backdrop-filter: blur(8px);
+  }
+  .pb-timer-btn.active { background: var(--pb-blue); border-color: var(--pb-blue); color: white; }
+  .pb-timer-btn:hover:not(.active) { border-color: rgba(255,255,255,0.5); color: white; }
+  .pb-timer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Camera viewport — matches template aspect ratio */
+  .pb-cam-viewport {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    background: #000; overflow: hidden;
+  }
+  .pb-cam-inner {
+    position: relative; overflow: hidden;
+    max-height: 100%; max-width: 100%;
+  }
+  .pb-cam-video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transform: scaleX(-1);
+  }
+
+  /* Slot guides */
+  .pb-slot-guide {
+    position: absolute; pointer-events: none; z-index: 8;
+    border: 2px dashed rgba(99,102,241,0.35);
+  }
+  .pb-slot-guide.current {
+    border-color: rgba(129,140,248,0.75);
+    box-shadow: inset 0 0 0 1px rgba(129,140,248,0.3), 0 0 20px rgba(99,102,241,0.25);
+    animation: pbPulse 2s infinite;
+  }
+
+  /* Frame overlay */
+  .pb-frame-ov {
+    position: absolute; inset: 0; pointer-events: none; z-index: 10;
+  }
+  .pb-frame-ov img { width: 100%; height: 100%; object-fit: fill; display: block; }
+
+  /* Countdown overlay */
+  .pb-cd-overlay {
+    position: absolute; inset: 0; z-index: 30;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.58); backdrop-filter: blur(4px); gap: 16px;
+  }
+  .pb-cd-hint { color: rgba(255,255,255,0.55); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
+
+  .pb-flash {
+    position: absolute; inset: 0; z-index: 50;
+    background: white; animation: pbFlash 0.35s ease-out forwards;
+  }
+
+  /* Capture controls */
+  .pb-cam-controls {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+    padding: 18px 24px 26px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.88) 0%, transparent 100%);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pb-capture-btn {
+    width: 70px; height: 70px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.08);
+    cursor: pointer; position: relative;
+    transition: transform 0.14s, box-shadow 0.14s;
+    backdrop-filter: blur(8px);
+  }
+  .pb-capture-btn::after {
+    content: ''; position: absolute; inset: 6px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    transition: transform 0.14s;
+    box-shadow: 0 0 20px var(--pb-glow);
+  }
+  .pb-capture-btn:hover { transform: scale(1.07); box-shadow: 0 0 30px rgba(99,102,241,0.5); }
+  .pb-capture-btn:active::after { transform: scale(0.84); }
+  .pb-capture-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+  /* ── SIDEBAR ── */
+  .pb-sidebar {
+    background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .pb-sidebar-head {
+    padding: 18px 16px 12px; border-bottom: 1px solid var(--pb-bdr2);
+  }
+  .pb-sidebar-tname {
+    font-family: var(--pbf-d); font-size: 15px; font-weight: 800;
+    color: var(--pb-text); margin: 0 0 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pb-sidebar-meta { font-size: 11px; color: var(--pb-text3); margin: 0; }
+  .pb-steps-list {
+    flex: 1; padding: 12px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .pb-step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; border-radius: 11px;
+    border: 1px solid transparent; transition: all 0.2s;
+  }
+  .pb-step.done { background: rgba(16,185,129,0.07); border-color: rgba(16,185,129,0.18); }
+  .pb-step.active { background: rgba(99,102,241,0.09); border-color: var(--pb-bdr); animation: pbPulse 2s infinite; }
+  .pb-step.pending { background: var(--pb-bg3); }
+  .pb-step-num {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800;
+  }
+  .done .pb-step-num { background: rgba(16,185,129,0.18); color: #6EE7B7; }
+  .active .pb-step-num { background: rgba(99,102,241,0.28); color: var(--pb-blue2); }
+  .pending .pb-step-num { background: var(--pb-surf2); color: var(--pb-text3); }
+  .pb-step-thumb {
+    width: 42px; height: 42px; border-radius: 7px; flex-shrink: 0;
+    overflow: hidden; background: var(--pb-bg3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; opacity: 0.5;
+  }
+  .pb-step-thumb img { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  .pb-step-lbl { font-size: 12px; font-weight: 700; color: var(--pb-text); }
+  .pb-step-status { font-size: 10px; color: var(--pb-text3); margin-top: 2px; }
+  .pb-sidebar-foot { padding: 12px; border-top: 1px solid var(--pb-bdr2); }
+
+  /* ── BUTTONS ── */
+  .pb-btn {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; padding: 11px; border-radius: 10px;
+    border: 1px solid var(--pb-bdr); background: var(--pb-surf2);
+    font-family: var(--pbf-b); font-size: 13px; font-weight: 700;
+    color: var(--pb-text2); cursor: pointer; transition: all 0.16s;
+  }
+  .pb-btn:hover { border-color: var(--pb-blue); color: var(--pb-text); }
+  .pb-btn-primary {
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    border: none; color: white;
+    box-shadow: 0 4px 20px var(--pb-glow);
+  }
+  .pb-btn-primary:hover { box-shadow: 0 6px 28px var(--pb-glow); transform: translateY(-1px); color: white; }
+  .pb-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ── PREVIEW STAGE ── */
+  .pb-preview-layout {
+    flex: 1; display: grid; grid-template-columns: 1fr 290px; overflow: hidden;
+  }
+  .pb-preview-main { padding: 30px 34px; overflow-y: auto; background: var(--pb-bg2); }
+  .pb-preview-title {
+    font-family: var(--pbf-d); font-size: 30px; font-weight: 800;
+    color: var(--pb-text); margin: 0 0 6px; letter-spacing: -0.5px;
+  }
+  .pb-preview-title span { color: var(--pb-blue2); }
+  .pb-preview-sub { color: var(--pb-text2); font-size: 13px; margin: 0 0 26px; }
+  .pb-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px;
+  }
+  .pb-preview-card {
+    background: var(--pb-surf); border-radius: 11px;
+    overflow: hidden; position: relative;
+    border: 1px solid var(--pb-bdr); transition: border-color 0.2s;
+  }
+  .pb-preview-card:hover { border-color: var(--pb-blue); }
+  .pb-preview-img {
+    width: 100%; aspect-ratio: 3/4; object-fit: cover;
+    display: block; transform: scaleX(-1);
+  }
+  .pb-preview-num {
+    position: absolute; top: 7px; left: 7px;
+    width: 22px; height: 22px; border-radius: 5px;
+    background: rgba(4,4,14,0.8); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 800; color: var(--pb-blue2);
+  }
+  .pb-preview-ov {
+    position: absolute; inset: 0;
+    background: rgba(4,4,14,0.65); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .pb-preview-card:hover .pb-preview-ov { opacity: 1; }
+  .pb-retake-btn {
+    padding: 7px 16px; border-radius: 7px;
+    background: white; color: var(--pb-bg);
+    border: none; font-family: var(--pbf-b); font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all 0.14s;
+  }
+  .pb-retake-btn:hover { background: var(--pb-blue2); color: white; }
+  .pb-preview-side {
+    background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
+    padding: 22px 18px; display: flex; flex-direction: column; gap: 14px;
+    overflow-y: auto;
+  }
+  .pb-side-title { font-family: var(--pbf-d); font-size: 15px; font-weight: 800; color: var(--pb-text); margin: 0; }
+  .pb-mini-frame {
+    width: 100%; border-radius: 11px; overflow: hidden;
+    background: repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px;
+    border: 1px solid var(--pb-bdr);
+    display: flex; align-items: center; justify-content: center; min-height: 100px;
+  }
+  .pb-mini-frame img { width: 100%; display: block; object-fit: contain; }
+  .pb-info-text { font-size: 12px; color: var(--pb-text2); line-height: 1.6; margin: 0; }
+
+  /* ── RESULT STAGE ── */
+  .pb-result-layout {
+    flex: 1; display: grid; grid-template-columns: 1fr 310px; overflow: hidden;
+  }
+  .pb-result-main {
+    background: var(--pb-bg); display: flex; align-items: center;
+    justify-content: center; padding: 40px; overflow-y: auto; position: relative;
+  }
+  .pb-result-main::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(99,102,241,0.1) 0%, transparent 70%);
+  }
+  .pb-result-wrap {
+    position: relative; max-width: 370px; width: 100%;
+    animation: pbReveal 0.6s cubic-bezier(0.175,0.885,0.32,1.275) forwards;
+    filter: drop-shadow(0 30px 60px rgba(99,102,241,0.28));
+  }
+  .pb-result-wrap img { width: 100%; display: block; border-radius: 4px; }
+  .pb-result-glow {
+    position: absolute; inset: -20px;
+    background: radial-gradient(ellipse at center, rgba(99,102,241,0.18) 0%, transparent 70%);
+    pointer-events: none; z-index: -1;
+  }
+  .pb-result-side {
+    background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
+    padding: 32px 22px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto;
+  }
+  .pb-result-title {
+    font-family: var(--pbf-d); font-size: 26px; font-weight: 800;
+    color: var(--pb-text); margin: 0; letter-spacing: -0.5px; line-height: 1.2;
+  }
+  .pb-result-title span { color: var(--pb-purple2); }
+  .pb-result-sub { font-size: 13px; color: var(--pb-text2); margin: 0 0 6px; }
+  .pb-action-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 14px; border-radius: 11px;
+    border: 1px solid var(--pb-bdr); background: var(--pb-surf2);
+    cursor: pointer; transition: all 0.16s; width: 100%;
+    text-align: left; font-family: var(--pbf-b);
+  }
+  .pb-action-row:hover { border-color: var(--pb-blue); background: rgba(99,102,241,0.07); }
+  .pb-action-row.hl { background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(124,58,237,0.18)); border-color: var(--pb-blue); }
+  .pb-action-row.hl:hover { background: linear-gradient(135deg, rgba(99,102,241,0.28), rgba(124,58,237,0.28)); }
+  .pb-action-row:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pb-action-ico {
+    width: 36px; height: 36px; border-radius: 9px;
+    background: rgba(99,102,241,0.14);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; flex-shrink: 0;
+  }
+  .pb-action-name { font-size: 13px; font-weight: 700; color: var(--pb-text); display: block; }
+  .pb-action-desc { font-size: 11px; color: var(--pb-text3); display: block; margin-top: 2px; }
+  .pb-success {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-radius: 9px;
+    background: rgba(16,185,129,0.09); border: 1px solid rgba(16,185,129,0.22);
+    font-size: 12px; font-weight: 700; color: #6EE7B7;
+    animation: pbFadeUp 0.3s ease;
+  }
+  .pb-divider { height: 1px; background: var(--pb-bdr2); }
+
+  /* ── LOADING ── */
+  .pb-loading {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(4,4,14,0.9); backdrop-filter: blur(18px); gap: 20px;
+  }
+  .pb-spinner {
+    width: 50px; height: 50px; border-radius: 50%;
+    border: 3px solid rgba(99,102,241,0.12);
+    border-top-color: var(--pb-blue);
+    animation: pbSpin 0.8s linear infinite;
+  }
+  .pb-loading-ttl {
+    font-family: var(--pbf-d); font-size: 19px; font-weight: 800;
+    background: linear-gradient(135deg, var(--pb-blue2), var(--pb-purple2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 860px) {
+    .pb-cam-layout, .pb-preview-layout, .pb-result-layout { grid-template-columns: 1fr; }
+    .pb-sidebar, .pb-preview-side, .pb-result-side {
+      border-left: none; border-top: 1px solid var(--pb-bdr); max-height: 44vh;
+    }
+    .pb-cam-main { min-height: 52vh; }
+    .pb-result-main { min-height: 50vh; }
+    .pb-grid { padding: 18px; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); }
+    .pb-filters, .pb-hero { padding-left: 20px; padding-right: 20px; }
+    .pb-result-wrap { max-width: 230px; }
+  }
+`;
 
 // ==========================================
 // 📸 MAIN COMPONENT
@@ -816,432 +701,400 @@ function CountdownRing({ value, max }: { value: number; max: number }) {
 export function PhotoboxPage() {
   const [stage, setStage] = useState<Stage>('template-selection');
   const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<PhotoTemplate | null>(null);
-  const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
-  const [currentSlotIndex, setCurrentSlotIndex] = useState(0);
+  const [selected, setSelected] = useState<PhotoTemplate | null>(null);
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [slotIdx, setSlotIdx] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [countdownDuration, setCountdownDuration] = useState(3);
-  const [isFlashing, setIsFlashing] = useState(false);
-  const [finalImage, setFinalImage] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [savedOk, setSavedOk] = useState(false);
-  const [filterCount, setFilterCount] = useState<FilterCount>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [timerDur, setTimerDur] = useState(3);
+  const [flashing, setFlashing] = useState(false);
+  const [finalImg, setFinalImg] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [filterCount, setFilterCount] = useState('all');
+  const [filterOrient, setFilterOrient] = useState('all');
+  const [search, setSearch] = useState('');
 
   const webcamRef = useRef<Webcam>(null);
-  const compositeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Load templates
   useEffect(() => {
     const q = query(collection(db, 'photobox_templates'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => {
+    return onSnapshot(q, snap => {
       setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })) as PhotoTemplate[]);
     });
   }, []);
 
-  // Countdown logic
+  // Countdown tick
   useEffect(() => {
     if (countdown === null) return;
-    if (countdown === 0) {
-      doCapture();
-      setCountdown(null);
-      return;
-    }
+    if (countdown === 0) { capture(); setCountdown(null); return; }
     const t = setTimeout(() => setCountdown(c => c !== null ? c - 1 : null), 1000);
     return () => clearTimeout(t);
   }, [countdown]);
 
-  // ---- HANDLERS ----
+  const templateAspect = selected ? selected.canvasWidth / selected.canvasHeight : 9 / 16;
+  const availCounts = Array.from(new Set(templates.map(t => t.photoCount))).sort((a, b) => a - b);
+  const filtered = templates.filter(t => {
+    if (filterCount !== 'all' && String(t.photoCount) !== filterCount) return false;
+    if (filterOrient !== 'all' && getOrientation(t.canvasWidth, t.canvasHeight) !== filterOrient) return false;
+    if (search && !t.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
   const selectTemplate = (t: PhotoTemplate) => {
-    setSelectedTemplate(t);
-    setCapturedPhotos([]);
-    setCurrentSlotIndex(0);
-    setStage('camera-capture');
+    setSelected(t); setPhotos([]); setSlotIdx(0); setStage('camera-capture');
   };
 
   const startCountdown = () => {
     if (countdown !== null) return;
-    setCountdown(countdownDuration);
+    setCountdown(timerDur);
   };
 
-  const doCapture = useCallback(() => {
-    if (!webcamRef.current) return;
-    const src = webcamRef.current.getScreenshot();
+  const capture = useCallback(() => {
+    if (!webcamRef.current || !selected) return;
+    const src = webcamRef.current.getScreenshot({ width: 1920, height: 1080 });
     if (!src) return;
 
-    setIsFlashing(true);
-    setTimeout(() => setIsFlashing(false), 350);
+    setFlashing(true);
+    setTimeout(() => setFlashing(false), 350);
 
-    setCapturedPhotos(prev => {
-      const updated = [...prev, { slotIndex: currentSlotIndex, dataUrl: src }];
-      if (selectedTemplate && updated.length >= selectedTemplate.photoCount) {
-        // Go to preview
-        setCurrentSlotIndex(0);
-        setStage('preview');
+    const idx = slotIdx;
+    setPhotos(prev => {
+      const updated = [...prev, { slotIndex: idx, dataUrl: src }];
+      if (updated.length >= selected.photoCount) {
+        setSlotIdx(0); setStage('preview');
       } else {
-        setCurrentSlotIndex(idx => idx + 1);
+        setSlotIdx(i => i + 1);
       }
       return updated;
     });
-  }, [webcamRef, currentSlotIndex, selectedTemplate]);
+  }, [webcamRef, slotIdx, selected]);
 
-  const retakePhoto = (slotIndex: number) => {
-    setCapturedPhotos(prev => prev.filter(p => p.slotIndex !== slotIndex));
-    setCurrentSlotIndex(slotIndex);
+  const retake = (idx: number) => {
+    setPhotos(prev => prev.filter(p => p.slotIndex !== idx));
+    setSlotIdx(idx);
     setStage('camera-capture');
   };
 
-  const generateComposite = async (photos: CapturedPhoto[]) => {
-    if (!selectedTemplate || !compositeCanvasRef.current) return;
-    setIsGenerating(true);
+  /**
+   * Generate composite image:
+   * 1. White background
+   * 2. Each photo cover-fitted into its slot
+   * 3. Frame PNG drawn on top (sandwich technique)
+   */
+  const generateComposite = async (ps: CapturedPhoto[]) => {
+    if (!selected || !canvasRef.current) return;
+    setGenerating(true);
 
-    const canvas = compositeCanvasRef.current;
+    const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    if (!ctx) { setIsGenerating(false); return; }
+    if (!ctx) { setGenerating(false); return; }
 
-    canvas.width = selectedTemplate.canvasWidth;
-    canvas.height = selectedTemplate.canvasHeight;
+    canvas.width = selected.canvasWidth;
+    canvas.height = selected.canvasHeight;
 
-    // White bg
+    // 1. White BG
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw photos into slots (mirror horizontally to match webcam preview)
-    for (const photo of photos) {
-      const slot = selectedTemplate.slots[photo.slotIndex];
+    // 2. Photos into slots with cover-fit (no stretching!)
+    for (const photo of ps) {
+      const slot = selected.slots[photo.slotIndex];
       if (!slot) continue;
       const img = new Image();
       img.crossOrigin = 'anonymous';
       await new Promise<void>(res => {
         img.onload = () => {
-          ctx.save();
-          // Mirror to match how user sees themselves
-          ctx.translate(slot.x + slot.width, slot.y);
-          ctx.scale(-1, 1);
-          ctx.drawImage(img, 0, 0, slot.width, slot.height);
-          ctx.restore();
+          drawCoverFit(ctx, img, slot.x, slot.y, slot.width, slot.height, true);
           res();
         };
+        img.onerror = () => res();
         img.src = photo.dataUrl;
       });
     }
 
-    // Draw template frame on top (sandwich technique)
-    const frameImg = new Image();
-    frameImg.crossOrigin = 'anonymous';
+    // 3. Frame PNG on top (transparent areas show photos below)
+    const frame = new Image();
+    frame.crossOrigin = 'anonymous';
     await new Promise<void>(res => {
-      frameImg.onload = () => {
-        ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+      frame.onload = () => {
+        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
         res();
       };
-      frameImg.src = selectedTemplate.imageUrl;
+      frame.onerror = () => res();
+      frame.src = selected.imageUrl;
     });
 
-    setFinalImage(canvas.toDataURL('image/png'));
-    setIsGenerating(false);
+    setFinalImg(canvas.toDataURL('image/png', 1.0));
+    setGenerating(false);
     setStage('result');
   };
 
-  const downloadImage = () => {
-    if (!finalImage) return;
+  const download = () => {
+    if (!finalImg) return;
     const a = document.createElement('a');
-    a.href = finalImage;
-    a.download = `photobox-${Date.now()}.png`;
-    a.click();
+    a.href = finalImg; a.download = `photobox-${Date.now()}.png`; a.click();
   };
 
-  const saveToGallery = async () => {
-    if (!finalImage) return;
+  const saveGallery = async () => {
+    if (!finalImg || saved) return;
     try {
       await addDoc(collection(db, 'secret_photos'), {
-        url: finalImage,
-        templateId: selectedTemplate?.id,
-        createdAt: new Date().toISOString()
+        url: finalImg, templateId: selected?.id,
+        templateName: selected?.name, createdAt: new Date().toISOString()
       });
-      setSavedOk(true);
-    } catch (e) {
-      console.error(e);
-      alert('Gagal simpan ke galeri');
-    }
+      setSaved(true);
+    } catch { alert('Gagal simpan ke galeri'); }
   };
 
-  const resetSession = () => {
-    setStage('template-selection');
-    setSelectedTemplate(null);
-    setCapturedPhotos([]);
-    setCurrentSlotIndex(0);
-    setFinalImage(null);
-    setSavedOk(false);
-    setCountdown(null);
+  const reset = () => {
+    setStage('template-selection'); setSelected(null); setPhotos([]);
+    setSlotIdx(0); setFinalImg(null); setSaved(false); setCountdown(null);
   };
 
-  // ---- FILTERED TEMPLATES ----
-  const filteredTemplates = templates.filter(t => {
-    const countOk = filterCount === 'all' || String(t.photoCount) === filterCount;
-    const searchOk = !searchQuery || t.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return countOk && searchOk;
-  });
+  // Slot guides overlay in camera
+  const slotGuides = () => {
+    if (!selected) return null;
+    return selected.slots.map((slot, i) => {
+      const done = photos.some(p => p.slotIndex === i);
+      if (done) return null;
+      return (
+        <div
+          key={i}
+          className={`pb-slot-guide ${i === slotIdx ? 'current' : ''}`}
+          style={{
+            left: `${(slot.x / selected.canvasWidth) * 100}%`,
+            top: `${(slot.y / selected.canvasHeight) * 100}%`,
+            width: `${(slot.width / selected.canvasWidth) * 100}%`,
+            height: `${(slot.height / selected.canvasHeight) * 100}%`,
+          }}
+        >
+          {i === slotIdx && (
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 22, opacity: 0.6 }}>
+              👤
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
 
-  // Count distinct photo counts for filter pills
-  const availableCounts = Array.from(new Set(templates.map(t => t.photoCount))).sort();
-
-  // ==========================================
-  // RENDER
-  // ==========================================
   return (
     <div className="pb-root">
       <style>{CSS}</style>
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* Hidden composite canvas */}
-      <canvas ref={compositeCanvasRef} style={{ display: 'none' }} />
-
-      {/* Generating overlay */}
-      {isGenerating && (
-        <div className="pb-generating">
+      {generating && (
+        <div className="pb-loading">
           <div className="pb-spinner" />
-          <div className="pb-gen-text">Menyusun foto kamu...</div>
+          <div className="pb-loading-ttl">Menyusun foto kamu...</div>
         </div>
       )}
 
-      {/* ======= TOP BAR ======= */}
+      {/* TOP BAR */}
       <header className="pb-topbar">
         <div className="pb-logo">
-          <span className="pb-logo-dot" />
-          Photobox
+          <div className="pb-logo-ico">📷</div>
+          Photobox Studio
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="pb-topbar-btns">
           {stage !== 'template-selection' && (
-            <button className="pb-back-btn" onClick={resetSession}>
-              ← Ganti Template
-            </button>
+            <button className="pb-btn-ghost-sm" onClick={reset}>← Template</button>
           )}
-          <button className="pb-back-btn" onClick={() => window.history.back()}>
-            ✕ Keluar
-          </button>
+          <button className="pb-btn-ghost-sm" onClick={() => window.history.back()}>✕ Keluar</button>
         </div>
       </header>
 
-      {/* ======= STAGE: TEMPLATE SELECTION ======= */}
+      {/* ══ STAGE 1: TEMPLATE SELECTION ══ */}
       {stage === 'template-selection' && (
         <div className="pb-scroll">
-          {/* Hero */}
           <div className="pb-hero">
-            <div className="pb-hero-tag">✨ Digital Photobox</div>
-            <h1 className="pb-hero-title">
-              Pilih <em>template</em> kamu,<br />lalu kita mulai!
-            </h1>
+            <div className="pb-hero-chip">✨ Digital Photobox</div>
+            <h1 className="pb-hero-title">Pilih template,<br /><span>bikin kenangan.</span></h1>
             <p className="pb-hero-sub">
-              {templates.length} template tersedia — gratis, instant, dan bisa didownload
+              {templates.length} template tersedia • Multi-ukuran • Download langsung
             </p>
           </div>
 
-          {/* Filter bar */}
-          <div className="pb-filterbar">
-            <span className="pb-filter-label">Foto:</span>
-            <div className="pb-filter-pills">
-              <button
-                className={`pb-pill ${filterCount === 'all' ? 'active' : ''}`}
-                onClick={() => setFilterCount('all')}
-              >
-                Semua
-              </button>
-              {availableCounts.map(c => (
-                <button
-                  key={c}
-                  className={`pb-pill ${filterCount === String(c) ? 'active' : ''}`}
-                  onClick={() => setFilterCount(String(c) as FilterCount)}
-                >
+          <div className="pb-filters">
+            <div className="pb-filter-group">
+              <span className="pb-filter-label">Foto</span>
+              <button className={`pb-pill ${filterCount === 'all' ? 'active' : ''}`} onClick={() => setFilterCount('all')}>Semua</button>
+              {availCounts.map(c => (
+                <button key={c} className={`pb-pill ${filterCount === String(c) ? 'active' : ''}`} onClick={() => setFilterCount(String(c))}>
                   {c} Foto
                 </button>
               ))}
             </div>
 
-            <div className="pb-search">
-              <span style={{ fontSize: 16, color: 'var(--light)' }}>🔍</span>
+            <div className="pb-filter-group">
+              <span className="pb-filter-label">Ukuran</span>
+              {[
+                { val: 'all', lbl: 'Semua' },
+                { val: 'portrait', lbl: '↑ Portrait' },
+                { val: 'landscape', lbl: '→ Landscape' },
+                { val: 'square', lbl: '□ Square' },
+              ].map(o => (
+                <button key={o.val} className={`pb-pill ${filterOrient === o.val ? 'active' : ''}`} onClick={() => setFilterOrient(o.val)}>
+                  {o.lbl}
+                </button>
+              ))}
+            </div>
+
+            <div className="pb-search-box">
+              <span style={{ color: 'var(--pb-text3)', fontSize: 14 }}>🔍</span>
               <input
-                type="text"
-                placeholder="Cari template..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                type="text" placeholder="Cari template..."
+                value={search} onChange={e => setSearch(e.target.value)}
               />
             </div>
           </div>
 
-          {/* Template grid */}
-          <div className="pb-template-grid">
-            {filteredTemplates.length === 0 ? (
+          <div className="pb-grid">
+            {filtered.length === 0 ? (
               <div className="pb-empty">
-                <div className="pb-empty-icon">📦</div>
+                <div className="pb-empty-ico">📦</div>
                 <h3>{templates.length === 0 ? 'Belum ada template' : 'Tidak ditemukan'}</h3>
-                <p>
-                  {templates.length === 0
-                    ? 'Admin belum upload template. Hubungi admin dulu ya!'
-                    : 'Coba ubah filter atau kata kunci pencarian.'}
-                </p>
+                <p>{templates.length === 0 ? 'Admin belum upload template.' : 'Ubah filter atau kata kunci.'}</p>
               </div>
-            ) : (
-              filteredTemplates.map(t => (
-                <div key={t.id} className="pb-template-card" onClick={() => selectTemplate(t)}>
-                  <div className="pb-card-badge">
-                    📸 {t.photoCount} foto
+            ) : filtered.map((t, i) => {
+              const orient = getOrientation(t.canvasWidth, t.canvasHeight);
+              const aspect = getAspectLabel(t.canvasWidth, t.canvasHeight);
+              const previewH = orient === 'portrait' ? 300 : orient === 'landscape' ? 150 : 220;
+              return (
+                <div key={t.id} className="pb-tcard" onClick={() => selectTemplate(t)} style={{ animationDelay: `${i * 0.04}s` }}>
+                  <div className="pb-tcard-badges">
+                    <div className="pb-tcard-badge">📸 {t.photoCount} foto</div>
+                    <div className="pb-tcard-ratio">{aspect}</div>
                   </div>
-
-                  <div className="pb-card-preview">
+                  <div className="pb-tcard-img-wrap" style={{ height: previewH }}>
                     <img src={t.imageUrl} alt={t.name} loading="lazy" />
-                    <div className="pb-card-hover-btn">
-                      <button className="pb-select-btn">Pilih Template →</button>
+                    <div className="pb-tcard-hover">
+                      <button className="pb-tcard-cta">Pilih Template</button>
                     </div>
                   </div>
-
-                  <div className="pb-card-info">
+                  <div className="pb-tcard-footer">
                     <div>
-                      <div className="pb-card-name">{t.name}</div>
-                      {t.tags && t.tags.length > 0 && (
-                        <div className="pb-card-tags">
-                          {t.tags.slice(0, 3).map(tag => (
-                            <span key={tag} className="pb-tag">{tag}</span>
-                          ))}
-                        </div>
-                      )}
+                      <div className="pb-tcard-name">{t.name}</div>
+                      <div className="pb-tcard-meta">{t.canvasWidth}×{t.canvasHeight}px • {orient}</div>
                     </div>
-                    <div className="pb-card-arrow">→</div>
+                    <div className="pb-tcard-arr">→</div>
                   </div>
                 </div>
-              ))
-            )}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ======= STAGE: CAMERA CAPTURE ======= */}
-      {stage === 'camera-capture' && selectedTemplate && (
-        <div className="pb-camera-layout">
-          {/* Main camera area */}
-          <div className="pb-camera-main">
-            <div className="pb-camera-topbar">
-              <div className="pb-camera-title">
-                Foto {currentSlotIndex + 1} dari {selectedTemplate.photoCount}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+      {/* ══ STAGE 2: CAMERA ══ */}
+      {stage === 'camera-capture' && selected && (
+        <div className="pb-cam-layout">
+          <div className="pb-cam-main">
+            <div className="pb-cam-topbar">
+              <div className="pb-cam-label">Foto {slotIdx + 1} / {selected.photoCount}</div>
+              <div className="pb-timer-group">
+                <span className="pb-timer-lbl">Timer</span>
                 {[3, 5, 10].map(s => (
-                  <button
-                    key={s}
-                    className={`pb-timer-btn ${countdownDuration === s ? 'active' : ''}`}
-                    onClick={() => setCountdownDuration(s)}
-                    disabled={countdown !== null}
-                  >
-                    {s}s
-                  </button>
+                  <button key={s} className={`pb-timer-btn ${timerDur === s ? 'active' : ''}`}
+                    onClick={() => setTimerDur(s)} disabled={countdown !== null}>{s}s</button>
                 ))}
               </div>
             </div>
 
-            <div className="pb-camera-frame-wrapper">
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                screenshotFormat="image/jpeg"
-                className="pb-webcam"
-                videoConstraints={{ facingMode: 'user', width: 1280, height: 720 }}
-                style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
-              />
+            {/* Camera viewport — aspect ratio matches template! */}
+            <div className="pb-cam-viewport">
+              <div
+                className="pb-cam-inner"
+                style={{
+                  aspectRatio: `${selected.canvasWidth} / ${selected.canvasHeight}`,
+                  width: templateAspect >= 1 ? '100%' : 'auto',
+                  height: templateAspect < 1 ? '100%' : 'auto',
+                }}
+              >
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  screenshotFormat="image/jpeg"
+                  className="pb-cam-video"
+                  videoConstraints={{ facingMode: 'user', aspectRatio: templateAspect }}
+                />
 
-              {/* Live frame overlay (sandwich technique in preview) */}
-              <div className="pb-frame-overlay">
-                <img src={selectedTemplate.imageUrl} alt="frame" />
-              </div>
+                {/* Slot guides (dashed outlines showing where photos go) */}
+                {slotGuides()}
 
-              {/* Countdown */}
-              {countdown !== null && countdown > 0 && (
-                <div className="pb-countdown-overlay">
-                  <CountdownRing value={countdown} max={countdownDuration} />
-                  <div className="pb-countdown-hint">Berpose dulu!</div>
+                {/* Frame overlay — sandwich technique live preview */}
+                <div className="pb-frame-ov">
+                  <img src={selected.imageUrl} alt="frame" />
                 </div>
-              )}
 
-              {/* Flash */}
-              {isFlashing && <div className="pb-flash" />}
+                {/* Countdown */}
+                {countdown !== null && countdown > 0 && (
+                  <div className="pb-cd-overlay">
+                    <CountdownRing value={countdown} max={timerDur} />
+                    <div className="pb-cd-hint">Pose yang kece!</div>
+                  </div>
+                )}
+
+                {/* Flash */}
+                {flashing && <div className="pb-flash" />}
+              </div>
             </div>
 
-            <div className="pb-camera-controls">
-              <button
-                className="pb-capture-btn"
-                onClick={startCountdown}
-                disabled={countdown !== null}
-                title="Ambil foto"
-              />
+            <div className="pb-cam-controls">
+              <button className="pb-capture-btn" onClick={startCountdown} disabled={countdown !== null} />
             </div>
           </div>
 
-          {/* Sidebar */}
           <aside className="pb-sidebar">
-            <div className="pb-sidebar-header">
-              <div className="pb-sidebar-title">{selectedTemplate.name}</div>
-              <p className="pb-sidebar-sub">
-                {selectedTemplate.photoCount} foto • {selectedTemplate.canvasWidth}×{selectedTemplate.canvasHeight}px
+            <div className="pb-sidebar-head">
+              <div className="pb-sidebar-tname">{selected.name}</div>
+              <p className="pb-sidebar-meta">
+                {selected.photoCount} foto • {getAspectLabel(selected.canvasWidth, selected.canvasHeight)} • {selected.canvasWidth}×{selected.canvasHeight}px
               </p>
             </div>
-
-            <div className="pb-progress-steps">
-              {Array.from({ length: selectedTemplate.photoCount }).map((_, i) => {
-                const captured = capturedPhotos.find(p => p.slotIndex === i);
-                const status = captured ? 'done' : i === currentSlotIndex ? 'active' : 'pending';
+            <div className="pb-steps-list">
+              {Array.from({ length: selected.photoCount }).map((_, i) => {
+                const cap = photos.find(p => p.slotIndex === i);
+                const st = cap ? 'done' : i === slotIdx ? 'active' : 'pending';
                 return (
-                  <div key={i} className={`pb-step ${status}`}>
-                    <div className="pb-step-num">
-                      {status === 'done' ? '✓' : i + 1}
-                    </div>
+                  <div key={i} className={`pb-step ${st}`}>
+                    <div className="pb-step-num">{st === 'done' ? '✓' : i + 1}</div>
                     <div className="pb-step-thumb">
-                      {captured
-                        ? <img src={captured.dataUrl} alt="" style={{ transform: 'scaleX(-1)' }} />
-                        : <span className="pb-step-thumb-empty">📷</span>
-                      }
+                      {cap ? <img src={cap.dataUrl} alt="" /> : '📷'}
                     </div>
                     <div>
-                      <div className="pb-step-label">Foto {i + 1}</div>
+                      <div className="pb-step-lbl">Foto {i + 1}</div>
                       <div className="pb-step-status">
-                        {status === 'done' ? '✓ Sudah diambil' : status === 'active' ? '← Sekarang' : 'Menunggu...'}
+                        {st === 'done' ? '✓ Selesai' : st === 'active' ? '← Giliranmu!' : 'Menunggu'}
                       </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            <div className="pb-sidebar-footer">
-              <button className="pb-btn-full pb-btn-ghost" onClick={resetSession}>
-                ← Ganti Template
-              </button>
+            <div className="pb-sidebar-foot">
+              <button className="pb-btn" onClick={reset}>← Ganti Template</button>
             </div>
           </aside>
         </div>
       )}
 
-      {/* ======= STAGE: PREVIEW ======= */}
-      {stage === 'preview' && selectedTemplate && (
+      {/* ══ STAGE 3: PREVIEW ══ */}
+      {stage === 'preview' && selected && (
         <div className="pb-preview-layout">
           <div className="pb-preview-main">
-            <h2 className="pb-preview-title">Cek dulu <em>hasilnya!</em></h2>
-            <p className="pb-preview-sub">
-              Hover foto untuk retake. Kalau sudah oke, klik "Proses Foto"!
-            </p>
-
+            <h2 className="pb-preview-title">Review <span>foto kamu</span></h2>
+            <p className="pb-preview-sub">Hover untuk retake. Kalau sudah oke, klik Proses!</p>
             <div className="pb-preview-grid">
-              {capturedPhotos.map((photo, idx) => (
-                <div key={idx} className="pb-preview-card">
-                  <img
-                    className="pb-preview-card-img"
-                    src={photo.dataUrl}
-                    alt={`Foto ${idx + 1}`}
-                  />
-                  <div className="pb-preview-card-num">{idx + 1}</div>
-                  <div className="pb-preview-card-overlay">
-                    <button
-                      className="pb-retake-btn"
-                      onClick={() => retakePhoto(photo.slotIndex)}
-                    >
-                      🔄 Retake
-                    </button>
+              {photos.map((photo, i) => (
+                <div key={i} className="pb-preview-card">
+                  <img className="pb-preview-img" src={photo.dataUrl} alt={`Foto ${i + 1}`} />
+                  <div className="pb-preview-num">{i + 1}</div>
+                  <div className="pb-preview-ov">
+                    <button className="pb-retake-btn" onClick={() => retake(photo.slotIndex)}>🔄 Retake</button>
                   </div>
                 </div>
               ))}
@@ -1249,101 +1102,72 @@ export function PhotoboxPage() {
           </div>
 
           <aside className="pb-preview-side">
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--dark)' }}>
-              Template: {selectedTemplate.name}
+            <div className="pb-side-title">Preview Frame</div>
+            <div className="pb-mini-frame">
+              <img src={selected.imageUrl} alt="frame" />
             </div>
-
-            {/* Mini composite preview placeholder */}
-            <div className="pb-composite-preview">
-              <img src={selectedTemplate.imageUrl} alt="preview frame" />
-            </div>
-
-            <div style={{ fontSize: 13, color: 'var(--mid)', lineHeight: 1.6 }}>
-              {capturedPhotos.length} dari {selectedTemplate.photoCount} foto siap.
-              Hover tiap foto untuk retake, atau lanjut proses sekarang!
-            </div>
-
-            <button
-              className="pb-btn-full pb-btn-primary"
-              onClick={() => generateComposite(capturedPhotos)}
-              disabled={capturedPhotos.length < selectedTemplate.photoCount}
-              style={{ padding: '14px', fontSize: 15 }}
-            >
+            <p className="pb-info-text">
+              {photos.length}/{selected.photoCount} foto siap. Foto akan di-fit otomatis ke setiap slot.
+            </p>
+            <button className="pb-btn pb-btn-primary"
+              onClick={() => generateComposite(photos)}
+              disabled={photos.length < selected.photoCount}>
               🎨 Proses Foto!
             </button>
-
-            <button className="pb-btn-full pb-btn-ghost" onClick={resetSession}>
-              Mulai Ulang
-            </button>
+            <button className="pb-btn" onClick={reset}>Mulai Ulang</button>
           </aside>
         </div>
       )}
 
-      {/* ======= STAGE: RESULT ======= */}
-      {stage === 'result' && finalImage && (
+      {/* ══ STAGE 4: RESULT ══ */}
+      {stage === 'result' && finalImg && (
         <div className="pb-result-layout">
-          {/* Dark display area */}
           <div className="pb-result-main">
-            <div className="pb-result-img-wrapper">
-              <div className="pb-tape" />
-              <img src={finalImage} alt="Hasil Photobox" />
+            <div className="pb-result-wrap">
+              <div className="pb-result-glow" />
+              <img src={finalImg} alt="Hasil Photobox" />
             </div>
           </div>
 
-          {/* Actions panel */}
           <aside className="pb-result-side">
-            <h2 className="pb-result-congrats">
-              Foto kamu<br /><em>udah jadi!</em> 🎉
-            </h2>
-            <p className="pb-result-hint">
-              Simpan, download, atau bagikan ke temen-temen kamu!
-            </p>
+            <h2 className="pb-result-title">Foto kamu<br /><span>udah jadi! 🎉</span></h2>
+            <p className="pb-result-sub">Download atau simpan ke galeri bersama!</p>
 
-            <button className="pb-action-btn primary" onClick={downloadImage}>
-              <div className="pb-action-icon">📥</div>
-              <div className="pb-action-text-wrap">
-                <span className="pb-action-title">Download Foto</span>
-                <span className="pb-action-desc">Simpan sebagai file PNG</span>
+            <button className="pb-action-row hl" onClick={download}>
+              <div className="pb-action-ico">📥</div>
+              <div>
+                <span className="pb-action-name">Download Foto</span>
+                <span className="pb-action-desc">Simpan sebagai PNG kualitas tinggi</span>
               </div>
             </button>
 
-            <button className="pb-action-btn" onClick={saveToGallery} disabled={savedOk}>
-              <div className="pb-action-icon">☁️</div>
-              <div className="pb-action-text-wrap">
-                <span className="pb-action-title">Simpan ke Galeri</span>
+            <button className="pb-action-row" onClick={saveGallery} disabled={saved}>
+              <div className="pb-action-ico">☁️</div>
+              <div>
+                <span className="pb-action-name">Simpan ke Galeri</span>
                 <span className="pb-action-desc">Admin bisa lihat di dashboard</span>
               </div>
             </button>
 
-            {savedOk && (
-              <div className="pb-saving-badge">
-                ✅ Berhasil disimpan ke galeri!
-              </div>
-            )}
+            {saved && <div className="pb-success">✅ Berhasil disimpan ke galeri!</div>}
 
             <div className="pb-divider" />
 
-            <button className="pb-action-btn" onClick={resetSession}>
-              <div className="pb-action-icon">🔄</div>
-              <div className="pb-action-text-wrap">
-                <span className="pb-action-title">Foto Lagi</span>
-                <span className="pb-action-desc">Pilih template baru</span>
+            <button className="pb-action-row" onClick={() => {
+              setPhotos([]); setSlotIdx(0); setFinalImg(null); setSaved(false); setStage('camera-capture');
+            }}>
+              <div className="pb-action-ico">📸</div>
+              <div>
+                <span className="pb-action-name">Ulangi Template Ini</span>
+                <span className="pb-action-desc">Pakai frame yang sama</span>
               </div>
             </button>
 
-            <button
-              className="pb-action-btn"
-              onClick={() => {
-                setCapturedPhotos([]);
-                setCurrentSlotIndex(0);
-                setFinalImage(null);
-                setStage('camera-capture');
-              }}
-            >
-              <div className="pb-action-icon">📸</div>
-              <div className="pb-action-text-wrap">
-                <span className="pb-action-title">Ulangi dengan Template Ini</span>
-                <span className="pb-action-desc">Pakai frame yang sama</span>
+            <button className="pb-action-row" onClick={reset}>
+              <div className="pb-action-ico">🔄</div>
+              <div>
+                <span className="pb-action-name">Pilih Template Lain</span>
+                <span className="pb-action-desc">Kembali ke halaman template</span>
               </div>
             </button>
           </aside>
