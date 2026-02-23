@@ -46,7 +46,7 @@ export function Header({ onReset }: { onReset: () => void }) {
         {/* TOMBOL SIGNATURE (Cyber Theme) */}
         <div className="signature-pill-dark" onClick={handleOpenVideo}>
           <span className="icon-glow">👾</span> 
-          <span className="text-gradient">yoshyy x keyysi</span>
+          <span className="text-gradient">yoshyy x nayysie</span>
         </div>
 
         {/* TOMBOL RESET */}

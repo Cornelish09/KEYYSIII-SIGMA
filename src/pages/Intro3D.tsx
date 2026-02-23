@@ -236,7 +236,7 @@ export function Intro3D({
                   {/* --- TOMBOL BARU GACOR --- */}
                   <button className="btn-gacor-ultimate" onClick={goNext}>
                     <span className="lock-icon-glow">🔓</span>
-                    <span>AYO MULAI KEYY!!</span>
+                    <span>AYO MULAI NAYY!!</span>
                   </button>
 
                 </div>
