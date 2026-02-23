@@ -20,8 +20,15 @@ type PhotoTemplate = {
   tags?: string[];
 };
 
-type CapturedPhoto = { slotIndex: number; dataUrl: string };
-type Stage = 'template-selection' | 'camera-capture' | 'preview' | 'result';
+type CapturedPhoto = {
+  slotIndex: number;
+  dataUrl: string;
+  offsetX: number; // px offset from center (for pan)
+  offsetY: number;
+};
+
+// Stages: template → method → camera/upload → editing → result
+type Stage = 'template-selection' | 'capture-method' | 'camera-capture' | 'upload-capture' | 'editing' | 'result';
 
 // ==========================================
 // 🔧 HELPERS
@@ -45,34 +52,33 @@ function getOrientation(w: number, h: number): 'portrait' | 'landscape' | 'squar
 }
 
 /**
- * THE CORE FIX: Draw image into a canvas rect using cover-fit logic.
- * This crops the source to match the destination ratio — no stretching!
- * Also mirrors horizontally to correct selfie-cam flip.
+ * Draw image with cover-fit + pan offset.
+ * offsetX/Y are pixel offsets from center at cover scale.
+ * mirror: horizontally flip (selfie correction).
  */
-function drawCoverFit(
+function drawWithPan(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   dx: number, dy: number, dw: number, dh: number,
-  mirror = true
+  offsetX = 0, offsetY = 0,
+  mirror = false
 ) {
   const srcW = img.naturalWidth || img.width;
   const srcH = img.naturalHeight || img.height;
   if (!srcW || !srcH) return;
 
-  const srcRatio = srcW / srcH;
-  const dstRatio = dw / dh;
+  // Scale to cover the slot
+  const coverScale = Math.max(dw / srcW, dh / srcH);
+  const scaledW = srcW * coverScale;
+  const scaledH = srcH * coverScale;
 
-  let sx = 0, sy = 0, sw = srcW, sh = srcH;
+  // Centered position
+  let drawX = (dw - scaledW) / 2 + offsetX;
+  let drawY = (dh - scaledH) / 2 + offsetY;
 
-  if (srcRatio > dstRatio) {
-    // Source is wider — crop left and right
-    sw = srcH * dstRatio;
-    sx = (srcW - sw) / 2;
-  } else {
-    // Source is taller — crop top and bottom
-    sh = srcW / dstRatio;
-    sy = (srcH - sh) / 2;
-  }
+  // Clamp so image never leaves slot
+  drawX = Math.min(0, Math.max(dw - scaledW, drawX));
+  drawY = Math.min(0, Math.max(dh - scaledH, drawY));
 
   ctx.save();
   ctx.beginPath();
@@ -82,9 +88,9 @@ function drawCoverFit(
   if (mirror) {
     ctx.translate(dx + dw, dy);
     ctx.scale(-1, 1);
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    ctx.drawImage(img, -drawX, drawY, scaledW, scaledH);
   } else {
-    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    ctx.drawImage(img, dx + drawX, dy + drawY, scaledW, scaledH);
   }
 
   ctx.restore();
@@ -126,6 +132,93 @@ function CountdownRing({ value, max }: { value: number; max: number }) {
     </div>
   );
 }
+
+// ==========================================
+// 🖱️ DRAGGABLE PHOTO SLOT (for editing stage)
+// ==========================================
+type DraggableSlotProps = {
+  photo: CapturedPhoto;
+  slot: PhotoSlot;
+  displayW: number;  // display width of slot
+  displayH: number;  // display height of slot
+  onOffsetChange: (dx: number, dy: number) => void;
+  mirror?: boolean;
+};
+
+function DraggableSlot({ photo, slot, displayW, displayH, onOffsetChange, mirror }: DraggableSlotProps) {
+  const dragRef = useRef<{ startX: number; startY: number; baseOX: number; baseOY: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Compute natural image size at cover scale for clamping
+  const [naturalSize, setNaturalSize] = useState({ w: 1, h: 1 });
+  const coverScale = Math.max(displayW / naturalSize.w, displayH / naturalSize.h);
+  const scaledW = naturalSize.w * coverScale;
+  const scaledH = naturalSize.h * coverScale;
+  const maxX = (scaledW - displayW) / 2;
+  const maxY = (scaledH - displayH) / 2;
+
+  const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val));
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      baseOX: photo.offsetX, baseOY: photo.offsetY
+    };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const newX = clamp(dragRef.current.baseOX + dx, -maxX, maxX);
+    const newY = clamp(dragRef.current.baseOY + dy, -maxY, maxY);
+    onOffsetChange(newX, newY);
+  };
+
+  const onPointerUp = () => { dragRef.current = null; };
+
+  return (
+    <div
+      style={{
+        width: displayW, height: displayH,
+        overflow: 'hidden', borderRadius: 8,
+        cursor: 'grab', userSelect: 'none', position: 'relative',
+        border: '2px solid rgba(99,102,241,0.5)',
+        touchAction: 'none',
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      <img
+        ref={imgRef}
+        src={photo.dataUrl}
+        alt=""
+        draggable={false}
+        onLoad={() => {
+          if (imgRef.current) setNaturalSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
+        }}
+        style={{
+          position: 'absolute',
+          width: scaledW, height: scaledH,
+          left: (displayW - scaledW) / 2 + photo.offsetX,
+          top: (displayH - scaledH) / 2 + photo.offsetY,
+          transform: mirror ? 'scaleX(-1)' : 'none',
+          pointerEvents: 'none',
+        }}
+      />
+      <div style={{
+        position: 'absolute', bottom: 6, right: 6,
+        background: 'rgba(0,0,0,0.65)', borderRadius: 5, padding: '3px 7px',
+        fontSize: 10, color: 'rgba(255,255,255,0.7)', pointerEvents: 'none'
+      }}>
+        ↔ Geser foto
+      </div>
+    </div>
+  );
+}
+
 
 // ==========================================
 // 🎨 CSS
@@ -366,7 +459,6 @@ const CSS = `
   }
   .pb-tcard:hover .pb-tcard-arr { background: var(--pb-blue); color: white; transform: rotate(45deg); }
 
-  /* Empty */
   .pb-empty {
     grid-column: 1/-1; padding: 80px 40px;
     text-align: center; color: var(--pb-text2);
@@ -375,6 +467,80 @@ const CSS = `
   .pb-empty-ico { font-size: 52px; opacity: 0.25; margin-bottom: 16px; }
   .pb-empty h3 { font-family: var(--pbf-d); color: var(--pb-text); margin: 0 0 8px; font-size: 20px; }
   .pb-empty p { margin: 0; font-size: 13px; }
+
+  /* ── CAPTURE METHOD STAGE ── */
+  .pb-method-wrap {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 36px; padding: 40px 20px; position: relative; z-index: 1;
+    animation: pbFadeUp 0.4s ease;
+  }
+  .pb-method-header { text-align: center; }
+  .pb-method-header h2 {
+    font-family: var(--pbf-d); font-size: clamp(22px, 3vw, 36px);
+    font-weight: 800; color: var(--pb-text); margin: 0 0 8px; letter-spacing: -0.5px;
+  }
+  .pb-method-header h2 span {
+    background: linear-gradient(135deg, var(--pb-blue2), var(--pb-purple2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .pb-method-header p { font-size: 14px; color: var(--pb-text2); margin: 0; }
+  .pb-method-cards {
+    display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;
+  }
+  .pb-method-card {
+    width: 240px; border-radius: 20px;
+    background: var(--pb-surf); border: 2px solid var(--pb-bdr);
+    padding: 36px 28px; text-align: center; cursor: pointer;
+    transition: all 0.22s; display: flex; flex-direction: column;
+    align-items: center; gap: 14px;
+  }
+  .pb-method-card:hover {
+    border-color: var(--pb-blue);
+    transform: translateY(-6px);
+    box-shadow: 0 16px 48px rgba(99,102,241,0.24);
+    background: rgba(99,102,241,0.07);
+  }
+  .pb-method-card.primary {
+    background: linear-gradient(145deg, rgba(99,102,241,0.15), rgba(124,58,237,0.12));
+    border-color: var(--pb-blue);
+    box-shadow: 0 8px 32px rgba(99,102,241,0.2);
+  }
+  .pb-method-card.primary:hover {
+    background: linear-gradient(145deg, rgba(99,102,241,0.25), rgba(124,58,237,0.2));
+    box-shadow: 0 16px 48px rgba(99,102,241,0.35);
+  }
+  .pb-method-ico {
+    width: 72px; height: 72px; border-radius: 20px;
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; box-shadow: 0 8px 24px var(--pb-glow);
+    flex-shrink: 0;
+  }
+  .pb-method-card:not(.primary) .pb-method-ico {
+    background: var(--pb-surf2); box-shadow: none;
+  }
+  .pb-method-name {
+    font-family: var(--pbf-d); font-size: 18px; font-weight: 800;
+    color: var(--pb-text); letter-spacing: -0.3px;
+  }
+  .pb-method-desc { font-size: 12px; color: var(--pb-text2); line-height: 1.6; }
+  .pb-method-badge {
+    padding: 4px 10px; border-radius: 6px;
+    background: linear-gradient(135deg, var(--pb-blue), var(--pb-purple));
+    font-size: 10px; font-weight: 700; color: white; letter-spacing: 0.5px;
+  }
+  .pb-method-template-info {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px; border-radius: 12px;
+    background: var(--pb-surf); border: 1px solid var(--pb-bdr);
+  }
+  .pb-method-template-info img {
+    width: 44px; height: 44px; object-fit: contain; border-radius: 8px;
+    background: var(--pb-bg3);
+  }
+  .pb-method-tname { font-size: 13px; font-weight: 700; color: var(--pb-text); }
+  .pb-method-tmeta { font-size: 11px; color: var(--pb-text3); margin-top: 2px; }
 
   /* ── CAMERA STAGE ── */
   .pb-cam-layout {
@@ -401,14 +567,13 @@ const CSS = `
     border: 1px solid rgba(255,255,255,0.22);
     background: rgba(255,255,255,0.07);
     font-family: var(--pbf-b); font-size: 12px; font-weight: 700;
-    color: rgba(255,255,255,0.65); cursor: pointer; transition: all 0.14s;
-    backdrop-filter: blur(8px);
+    color: rgba(255,255,255,0.5); cursor: pointer; transition: all 0.14s;
   }
-  .pb-timer-btn.active { background: var(--pb-blue); border-color: var(--pb-blue); color: white; }
-  .pb-timer-btn:hover:not(.active) { border-color: rgba(255,255,255,0.5); color: white; }
-  .pb-timer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* Camera viewport — matches template aspect ratio */
+  .pb-timer-btn:hover,
+  .pb-timer-btn.active {
+    background: rgba(99,102,241,0.35); border-color: var(--pb-blue);
+    color: white;
+  }
   .pb-cam-viewport {
     flex: 1; display: flex; align-items: center; justify-content: center;
     background: #000; overflow: hidden;
@@ -421,38 +586,16 @@ const CSS = `
     width: 100%; height: 100%; object-fit: cover; display: block;
     transform: scaleX(-1);
   }
-
-  /* Slot guides */
-  .pb-slot-guide {
-    position: absolute; pointer-events: none; z-index: 8;
-    border: 2px dashed rgba(99,102,241,0.35);
-  }
-  .pb-slot-guide.current {
-    border-color: rgba(129,140,248,0.75);
-    box-shadow: inset 0 0 0 1px rgba(129,140,248,0.3), 0 0 20px rgba(99,102,241,0.25);
-    animation: pbPulse 2s infinite;
-  }
-
-  /* Frame overlay */
-  .pb-frame-ov {
-    position: absolute; inset: 0; pointer-events: none; z-index: 10;
-  }
-  .pb-frame-ov img { width: 100%; height: 100%; object-fit: fill; display: block; }
-
-  /* Countdown overlay */
   .pb-cd-overlay {
     position: absolute; inset: 0; z-index: 30;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     background: rgba(0,0,0,0.58); backdrop-filter: blur(4px); gap: 16px;
   }
   .pb-cd-hint { color: rgba(255,255,255,0.55); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
-
   .pb-flash {
     position: absolute; inset: 0; z-index: 50;
     background: white; animation: pbFlash 0.35s ease-out forwards;
   }
-
-  /* Capture controls */
   .pb-cam-controls {
     position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
     padding: 18px 24px 26px;
@@ -476,6 +619,52 @@ const CSS = `
   .pb-capture-btn:hover { transform: scale(1.07); box-shadow: 0 0 30px rgba(99,102,241,0.5); }
   .pb-capture-btn:active::after { transform: scale(0.84); }
   .pb-capture-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+  /* ── UPLOAD STAGE ── */
+  .pb-upload-layout {
+    flex: 1; display: grid; grid-template-columns: 1fr 320px; overflow: hidden;
+  }
+  .pb-upload-main {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: var(--pb-bg2); padding: 40px; gap: 24px; overflow-y: auto;
+  }
+  .pb-upload-title {
+    font-family: var(--pbf-d); font-size: 22px; font-weight: 800;
+    color: var(--pb-text); text-align: center; margin: 0;
+  }
+  .pb-upload-sub { font-size: 13px; color: var(--pb-text2); text-align: center; margin: 0; }
+  .pb-upload-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px; width: 100%; max-width: 600px;
+  }
+  .pb-upload-slot {
+    aspect-ratio: 3/4; border-radius: 12px;
+    border: 2px dashed var(--pb-bdr); background: var(--pb-surf);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .pb-upload-slot:hover { border-color: var(--pb-blue); background: rgba(99,102,241,0.06); }
+  .pb-upload-slot.filled { border-style: solid; border-color: var(--pb-blue); }
+  .pb-upload-slot img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  }
+  .pb-upload-slot-num {
+    font-size: 11px; font-weight: 800; color: var(--pb-text3); text-transform: uppercase;
+  }
+  .pb-upload-slot-ico { font-size: 28px; opacity: 0.4; }
+  .pb-upload-slot-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s;
+    font-size: 11px; font-weight: 700; color: white;
+  }
+  .pb-upload-slot.filled:hover .pb-upload-slot-overlay { opacity: 1; }
+  .pb-upload-slot .pb-slot-done-badge {
+    position: absolute; top: 6px; left: 6px;
+    background: rgba(16,185,129,0.9); border-radius: 5px; padding: 2px 7px;
+    font-size: 10px; font-weight: 800; color: white;
+  }
 
   /* ── SIDEBAR ── */
   .pb-sidebar {
@@ -539,67 +728,54 @@ const CSS = `
   .pb-btn-primary:hover { box-shadow: 0 6px 28px var(--pb-glow); transform: translateY(-1px); color: white; }
   .pb-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
-  /* ── PREVIEW STAGE ── */
-  .pb-preview-layout {
-    flex: 1; display: grid; grid-template-columns: 1fr 290px; overflow: hidden;
+  /* ── EDITING STAGE ── */
+  .pb-edit-layout {
+    flex: 1; display: grid; grid-template-columns: 1fr 320px; overflow: hidden;
   }
-  .pb-preview-main { padding: 30px 34px; overflow-y: auto; background: var(--pb-bg2); }
-  .pb-preview-title {
-    font-family: var(--pbf-d); font-size: 30px; font-weight: 800;
-    color: var(--pb-text); margin: 0 0 6px; letter-spacing: -0.5px;
+  .pb-edit-main {
+    padding: 28px 32px; overflow-y: auto; background: var(--pb-bg2);
+    display: flex; flex-direction: column; gap: 20px;
   }
-  .pb-preview-title span { color: var(--pb-blue2); }
-  .pb-preview-sub { color: var(--pb-text2); font-size: 13px; margin: 0 0 26px; }
-  .pb-preview-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 14px;
+  .pb-edit-header h2 {
+    font-family: var(--pbf-d); font-size: 26px; font-weight: 800;
+    color: var(--pb-text); margin: 0 0 4px; letter-spacing: -0.5px;
   }
-  .pb-preview-card {
-    background: var(--pb-surf); border-radius: 11px;
-    overflow: hidden; position: relative;
-    border: 1px solid var(--pb-bdr); transition: border-color 0.2s;
+  .pb-edit-header h2 span { color: var(--pb-blue2); }
+  .pb-edit-header p { font-size: 13px; color: var(--pb-text2); margin: 0; }
+  .pb-edit-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 18px;
   }
-  .pb-preview-card:hover { border-color: var(--pb-blue); }
-  .pb-preview-img {
-    width: 100%; aspect-ratio: 3/4; object-fit: cover;
-    display: block; transform: scaleX(-1);
+  .pb-edit-card {
+    background: var(--pb-surf); border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--pb-bdr); padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
   }
-  .pb-preview-num {
-    position: absolute; top: 7px; left: 7px;
-    width: 22px; height: 22px; border-radius: 5px;
-    background: rgba(4,4,14,0.8); backdrop-filter: blur(6px);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 800; color: var(--pb-blue2);
+  .pb-edit-card-label {
+    font-size: 11px; font-weight: 700; color: var(--pb-text2);
+    text-transform: uppercase; letter-spacing: 0.8px;
   }
-  .pb-preview-ov {
-    position: absolute; inset: 0;
-    background: rgba(4,4,14,0.65); backdrop-filter: blur(6px);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: opacity 0.2s;
+  .pb-edit-actions {
+    display: flex; gap: 6px;
   }
-  .pb-preview-card:hover .pb-preview-ov { opacity: 1; }
-  .pb-retake-btn {
-    padding: 7px 16px; border-radius: 7px;
-    background: white; color: var(--pb-bg);
-    border: none; font-family: var(--pbf-b); font-size: 12px; font-weight: 700;
-    cursor: pointer; transition: all 0.14s;
+  .pb-edit-actions button {
+    flex: 1; padding: 6px 0; border-radius: 7px;
+    border: 1px solid var(--pb-bdr); background: var(--pb-surf2);
+    font-family: var(--pbf-b); font-size: 11px; font-weight: 700;
+    color: var(--pb-text2); cursor: pointer; transition: all 0.14s;
   }
-  .pb-retake-btn:hover { background: var(--pb-blue2); color: white; }
-  .pb-preview-side {
+  .pb-edit-actions button:hover { border-color: var(--pb-blue); color: var(--pb-blue2); }
+  .pb-edit-side {
     background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
-    padding: 22px 18px; display: flex; flex-direction: column; gap: 14px;
-    overflow-y: auto;
+    padding: 22px 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
   }
-  .pb-side-title { font-family: var(--pbf-d); font-size: 15px; font-weight: 800; color: var(--pb-text); margin: 0; }
-  .pb-mini-frame {
+  .pb-edit-preview-wrap {
     width: 100%; border-radius: 11px; overflow: hidden;
     background: repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px;
-    border: 1px solid var(--pb-bdr);
-    display: flex; align-items: center; justify-content: center; min-height: 100px;
+    border: 1px solid var(--pb-bdr); min-height: 80px;
+    display: flex; align-items: center; justify-content: center;
   }
-  .pb-mini-frame img { width: 100%; display: block; object-fit: contain; }
-  .pb-info-text { font-size: 12px; color: var(--pb-text2); line-height: 1.6; margin: 0; }
+  .pb-edit-preview-wrap canvas { width: 100%; height: auto; display: block; }
 
   /* ── RESULT STAGE ── */
   .pb-result-layout {
@@ -626,8 +802,7 @@ const CSS = `
   }
   .pb-result-side {
     background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
-    padding: 32px 22px; display: flex; flex-direction: column; gap: 12px;
-    overflow-y: auto;
+    padding: 32px 22px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
   }
   .pb-result-title {
     font-family: var(--pbf-d); font-size: 26px; font-weight: 800;
@@ -683,8 +858,10 @@ const CSS = `
 
   /* ── RESPONSIVE ── */
   @media (max-width: 860px) {
-    .pb-cam-layout, .pb-preview-layout, .pb-result-layout { grid-template-columns: 1fr; }
-    .pb-sidebar, .pb-preview-side, .pb-result-side {
+    .pb-cam-layout, .pb-upload-layout, .pb-edit-layout, .pb-result-layout {
+      grid-template-columns: 1fr;
+    }
+    .pb-sidebar, .pb-edit-side, .pb-result-side {
       border-left: none; border-top: 1px solid var(--pb-bdr); max-height: 44vh;
     }
     .pb-cam-main { min-height: 52vh; }
@@ -692,6 +869,7 @@ const CSS = `
     .pb-grid { padding: 18px; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); }
     .pb-filters, .pb-hero { padding-left: 20px; padding-right: 20px; }
     .pb-result-wrap { max-width: 230px; }
+    .pb-method-card { width: 190px; padding: 24px 18px; }
   }
 `;
 
@@ -702,6 +880,7 @@ export function PhotoboxPage() {
   const [stage, setStage] = useState<Stage>('template-selection');
   const [templates, setTemplates] = useState<PhotoTemplate[]>([]);
   const [selected, setSelected] = useState<PhotoTemplate | null>(null);
+  const [captureMethod, setCaptureMethod] = useState<'camera' | 'upload' | null>(null);
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [slotIdx, setSlotIdx] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -718,8 +897,10 @@ export function PhotoboxPage() {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const activeUploadSlot = useRef<number>(0);
 
-  // Load templates
+  // Load templates from Firestore
   useEffect(() => {
     const q = query(collection(db, 'photobox_templates'), orderBy('createdAt', 'desc'));
     return onSnapshot(q, snap => {
@@ -735,26 +916,24 @@ export function PhotoboxPage() {
     return () => clearTimeout(t);
   }, [countdown]);
 
-  // Live preview canvas — rerenders whenever a new photo is captured
+  // Live preview canvas (camera & editing)
   useEffect(() => {
     if (!selected || !liveCanvasRef.current) return;
-    if (stage !== 'camera-capture' && stage !== 'preview') return;
+    if (stage !== 'camera-capture' && stage !== 'editing' && stage !== 'upload-capture') return;
+
     const canvas = liveCanvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Scale to fit sidebar (max 280px wide)
     const maxW = 280;
     const scale = maxW / selected.canvasWidth;
     canvas.width = Math.round(selected.canvasWidth * scale);
     canvas.height = Math.round(selected.canvasHeight * scale);
 
     const draw = async () => {
-      // White bg
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw captured photos into their slots
       for (const photo of photos) {
         const slot = selected.slots[photo.slotIndex];
         if (!slot) continue;
@@ -762,11 +941,12 @@ export function PhotoboxPage() {
         img.crossOrigin = 'anonymous';
         await new Promise<void>(res => {
           img.onload = () => {
-            drawCoverFit(
+            drawWithPan(
               ctx, img,
               slot.x * scale, slot.y * scale,
               slot.width * scale, slot.height * scale,
-              true
+              photo.offsetX * scale, photo.offsetY * scale,
+              captureMethod === 'camera' // only mirror for camera
             );
             res();
           };
@@ -776,31 +956,20 @@ export function PhotoboxPage() {
       }
 
       // Highlight next empty slot
-      if (photos.length < selected.photoCount) {
+      if (photos.length < selected.photoCount && stage !== 'editing') {
         const nextSlot = selected.slots[slotIdx];
         if (nextSlot) {
           ctx.strokeStyle = 'rgba(129,140,248,0.8)';
           ctx.lineWidth = 3;
           ctx.setLineDash([8, 4]);
-          ctx.strokeRect(
-            nextSlot.x * scale, nextSlot.y * scale,
-            nextSlot.width * scale, nextSlot.height * scale
-          );
+          ctx.strokeRect(nextSlot.x * scale, nextSlot.y * scale, nextSlot.width * scale, nextSlot.height * scale);
           ctx.setLineDash([]);
           ctx.fillStyle = 'rgba(99,102,241,0.08)';
-          ctx.fillRect(
-            nextSlot.x * scale, nextSlot.y * scale,
-            nextSlot.width * scale, nextSlot.height * scale
-          );
-          // Label
+          ctx.fillRect(nextSlot.x * scale, nextSlot.y * scale, nextSlot.width * scale, nextSlot.height * scale);
           ctx.font = `bold ${Math.max(12, nextSlot.height * scale * 0.2)}px system-ui`;
           ctx.fillStyle = 'rgba(129,140,248,0.7)';
           ctx.textAlign = 'center';
-          ctx.fillText(
-            `📸 ${slotIdx + 1}`,
-            (nextSlot.x + nextSlot.width / 2) * scale,
-            (nextSlot.y + nextSlot.height / 2) * scale
-          );
+          ctx.fillText(`📸 ${slotIdx + 1}`, (nextSlot.x + nextSlot.width / 2) * scale, (nextSlot.y + nextSlot.height / 2) * scale);
           ctx.textAlign = 'left';
         }
       }
@@ -816,7 +985,7 @@ export function PhotoboxPage() {
     };
 
     draw();
-  }, [photos, slotIdx, selected, stage]);
+  }, [photos, slotIdx, selected, stage, captureMethod]);
 
   const availCounts = Array.from(new Set(templates.map(t => t.photoCount))).sort((a, b) => a - b);
   const filtered = templates.filter(t => {
@@ -827,7 +996,13 @@ export function PhotoboxPage() {
   });
 
   const selectTemplate = (t: PhotoTemplate) => {
-    setSelected(t); setPhotos([]); setSlotIdx(0); setStage('camera-capture');
+    setSelected(t); setPhotos([]); setSlotIdx(0); setCaptureMethod(null);
+    setStage('capture-method');
+  };
+
+  const chooseMethod = (method: 'camera' | 'upload') => {
+    setCaptureMethod(method);
+    setStage(method === 'camera' ? 'camera-capture' : 'upload-capture');
   };
 
   const startCountdown = () => {
@@ -835,39 +1010,100 @@ export function PhotoboxPage() {
     setCountdown(timerDur);
   };
 
+  // ── Auto-save raw photo to Firestore ──
+  const autoSaveToAdmin = async (dataUrl: string, slotIndex: number) => {
+    if (!selected) return;
+    try {
+      await addDoc(collection(db, 'photobox_raw_photos'), {
+        dataUrl,
+        slotIndex,
+        templateId: selected.id,
+        templateName: selected.name,
+        captureMethod,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Auto-save to admin failed:', e);
+    }
+  };
+
   const capture = useCallback(() => {
     if (!webcamRef.current || !selected) return;
-    const src = webcamRef.current.getScreenshot({ width: 1920, height: 1080 });
+    const src = webcamRef.current.getScreenshot();
     if (!src) return;
 
     setFlashing(true);
     setTimeout(() => setFlashing(false), 350);
 
     const idx = slotIdx;
+    const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: src, offsetX: 0, offsetY: 0 };
+
+    autoSaveToAdmin(src, idx);
+
     setPhotos(prev => {
-      const updated = [...prev, { slotIndex: idx, dataUrl: src }];
+      const updated = [...prev, newPhoto];
       if (updated.length >= selected.photoCount) {
-        setSlotIdx(0); setStage('preview');
+        setSlotIdx(0); setStage('editing');
       } else {
         setSlotIdx(i => i + 1);
       }
       return updated;
     });
-  }, [webcamRef, slotIdx, selected]);
+  }, [webcamRef, slotIdx, selected, captureMethod]);
 
   const retake = (idx: number) => {
     setPhotos(prev => prev.filter(p => p.slotIndex !== idx));
     setSlotIdx(idx);
-    setStage('camera-capture');
+    setStage(captureMethod === 'camera' ? 'camera-capture' : 'upload-capture');
   };
 
-  /**
-   * Generate composite image:
-   * 1. White background
-   * 2. Each photo cover-fitted into its slot
-   * 3. Frame PNG drawn on top (sandwich technique)
-   */
-  const generateComposite = async (ps: CapturedPhoto[]) => {
+  // ── Upload handler ──
+  const handleUploadClick = (slotIndex: number) => {
+    activeUploadSlot.current = slotIndex;
+    uploadInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selected) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      const idx = activeUploadSlot.current;
+      const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl, offsetX: 0, offsetY: 0 };
+
+      autoSaveToAdmin(dataUrl, idx);
+
+      setPhotos(prev => {
+        const filtered = prev.filter(p => p.slotIndex !== idx);
+        const updated = [...filtered, newPhoto].sort((a, b) => a.slotIndex - b.slotIndex);
+        if (updated.length >= selected.photoCount) {
+          setSlotIdx(0); setStage('editing');
+        } else {
+          // Move to next empty slot
+          const usedSlots = new Set(updated.map(p => p.slotIndex));
+          for (let i = 0; i < selected.photoCount; i++) {
+            if (!usedSlots.has(i)) { setSlotIdx(i); break; }
+          }
+        }
+        return updated;
+      });
+    };
+    reader.readAsDataURL(file);
+    // reset input so same file can be reselected
+    e.target.value = '';
+  };
+
+  // ── Update photo offset (for drag-to-pan in editing) ──
+  const updateOffset = (slotIndex: number, offsetX: number, offsetY: number) => {
+    setPhotos(prev => prev.map(p =>
+      p.slotIndex === slotIndex ? { ...p, offsetX, offsetY } : p
+    ));
+  };
+
+  // ── Generate composite ──
+  const generateComposite = async () => {
     if (!selected || !canvasRef.current) return;
     setGenerating(true);
 
@@ -878,19 +1114,22 @@ export function PhotoboxPage() {
     canvas.width = selected.canvasWidth;
     canvas.height = selected.canvasHeight;
 
-    // 1. White BG
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 2. Photos into slots with cover-fit (no stretching!)
-    for (const photo of ps) {
+    for (const photo of photos) {
       const slot = selected.slots[photo.slotIndex];
       if (!slot) continue;
       const img = new Image();
       img.crossOrigin = 'anonymous';
       await new Promise<void>(res => {
         img.onload = () => {
-          drawCoverFit(ctx, img, slot.x, slot.y, slot.width, slot.height, true);
+          drawWithPan(
+            ctx, img,
+            slot.x, slot.y, slot.width, slot.height,
+            photo.offsetX, photo.offsetY,
+            captureMethod === 'camera'
+          );
           res();
         };
         img.onerror = () => res();
@@ -898,14 +1137,11 @@ export function PhotoboxPage() {
       });
     }
 
-    // 3. Frame PNG on top (transparent areas show photos below)
+    // Frame on top
     const frame = new Image();
     frame.crossOrigin = 'anonymous';
     await new Promise<void>(res => {
-      frame.onload = () => {
-        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-        res();
-      };
+      frame.onload = () => { ctx.drawImage(frame, 0, 0, canvas.width, canvas.height); res(); };
       frame.onerror = () => res();
       frame.src = selected.imageUrl;
     });
@@ -935,12 +1171,28 @@ export function PhotoboxPage() {
   const reset = () => {
     setStage('template-selection'); setSelected(null); setPhotos([]);
     setSlotIdx(0); setFinalImg(null); setSaved(false); setCountdown(null);
+    setCaptureMethod(null);
+  };
+
+  // ── Editing stage: compute display size for each slot ──
+  const getSlotDisplay = (slot: PhotoSlot) => {
+    const maxW = 220;
+    const scale = maxW / slot.width;
+    return { w: maxW, h: Math.round(slot.height * scale) };
   };
 
   return (
     <div className="pb-root">
       <style>{CSS}</style>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+      {/* Hidden upload input */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
 
       {generating && (
         <div className="pb-loading">
@@ -984,7 +1236,6 @@ export function PhotoboxPage() {
                 </button>
               ))}
             </div>
-
             <div className="pb-filter-group">
               <span className="pb-filter-label">Ukuran</span>
               {[
@@ -998,7 +1249,6 @@ export function PhotoboxPage() {
                 </button>
               ))}
             </div>
-
             <div className="pb-search-box">
               <span style={{ color: 'var(--pb-text3)', fontSize: 14 }}>🔍</span>
               <input
@@ -1045,7 +1295,50 @@ export function PhotoboxPage() {
         </div>
       )}
 
-      {/* ══ STAGE 2: CAMERA ══ */}
+      {/* ══ STAGE 1.5: CAPTURE METHOD ══ */}
+      {stage === 'capture-method' && selected && (
+        <div className="pb-method-wrap">
+          {/* Selected template info */}
+          <div className="pb-method-template-info">
+            <img src={selected.imageUrl} alt={selected.name} />
+            <div>
+              <div className="pb-method-tname">{selected.name}</div>
+              <div className="pb-method-tmeta">{selected.photoCount} foto • {selected.canvasWidth}×{selected.canvasHeight}px</div>
+            </div>
+          </div>
+
+          <div className="pb-method-header">
+            <h2>Mau <span>ambil foto</span> gimana?</h2>
+            <p>Pilih pakai kamera langsung atau upload dari galeri kamu</p>
+          </div>
+
+          <div className="pb-method-cards">
+            {/* Camera */}
+            <div className="pb-method-card primary" onClick={() => chooseMethod('camera')}>
+              <div className="pb-method-ico">📷</div>
+              <div className="pb-method-name">Kamera</div>
+              <div className="pb-method-desc">Foto langsung pakai<br />kamera perangkat kamu</div>
+              <div className="pb-method-badge">LIVE • REAL-TIME</div>
+            </div>
+
+            {/* Upload */}
+            <div className="pb-method-card" onClick={() => chooseMethod('upload')}>
+              <div className="pb-method-ico" style={{ background: 'var(--pb-surf2)' }}>🖼️</div>
+              <div className="pb-method-name">Upload</div>
+              <div className="pb-method-desc">Pilih foto dari<br />galeri atau file kamu</div>
+              <div style={{ fontSize: 11, color: 'var(--pb-text3)', fontWeight: 600 }}>
+                JPG / PNG / HEIC
+              </div>
+            </div>
+          </div>
+
+          <button className="pb-btn-ghost-sm" onClick={reset} style={{ marginTop: 4 }}>
+            ← Ganti Template
+          </button>
+        </div>
+      )}
+
+      {/* ══ STAGE 2A: CAMERA CAPTURE ══ */}
       {stage === 'camera-capture' && selected && (
         <div className="pb-cam-layout">
           <div className="pb-cam-main">
@@ -1060,7 +1353,6 @@ export function PhotoboxPage() {
               </div>
             </div>
 
-            {/* Full camera — NO template overlay, NO aspect ratio forcing */}
             <div className="pb-cam-viewport">
               <div className="pb-cam-inner">
                 <Webcam
@@ -1071,16 +1363,12 @@ export function PhotoboxPage() {
                   videoConstraints={{ facingMode: 'user' }}
                   screenshotQuality={1}
                 />
-
-                {/* Countdown */}
                 {countdown !== null && countdown > 0 && (
                   <div className="pb-cd-overlay">
                     <CountdownRing value={countdown} max={timerDur} />
                     <div className="pb-cd-hint">Pose yang kece!</div>
                   </div>
                 )}
-
-                {/* Flash */}
                 {flashing && <div className="pb-flash" />}
               </div>
             </div>
@@ -1090,37 +1378,18 @@ export function PhotoboxPage() {
             </div>
           </div>
 
-          {/* Sidebar: Live composite preview */}
+          {/* Sidebar */}
           <aside className="pb-sidebar">
             <div className="pb-sidebar-head">
               <div className="pb-sidebar-tname">{selected.name}</div>
-              <p className="pb-sidebar-meta">
-                {photos.length}/{selected.photoCount} foto • Live preview
-              </p>
+              <p className="pb-sidebar-meta">{photos.length}/{selected.photoCount} foto • Live preview</p>
             </div>
-
-            {/* Live preview canvas */}
-            <div style={{
-              padding: '16px 16px 8px',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-              borderBottom: '1px solid var(--pb-bdr2)',
-            }}>
-              <div style={{
-                width: '100%', borderRadius: 10, overflow: 'hidden',
-                background: 'repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px',
-                border: '1px solid var(--pb-bdr)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <canvas
-                  ref={liveCanvasRef}
-                  style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 320, objectFit: 'contain' }}
-                />
+            <div style={{ padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--pb-bdr2)' }}>
+              <div style={{ width: '100%', borderRadius: 10, overflow: 'hidden', background: 'repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px', border: '1px solid var(--pb-bdr)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <canvas ref={liveCanvasRef} style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 320 }} />
               </div>
-              <div style={{ fontSize: 11, color: 'var(--pb-text3)', textAlign: 'center' }}>
-                Preview langsung masuk sini tiap foto dijepret ↑
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--pb-text3)', textAlign: 'center' }}>Preview langsung masuk sini tiap foto dijepret ↑</div>
             </div>
-
             <div className="pb-steps-list">
               {Array.from({ length: selected.photoCount }).map((_, i) => {
                 const cap = photos.find(p => p.slotIndex === i);
@@ -1142,42 +1411,141 @@ export function PhotoboxPage() {
               })}
             </div>
             <div className="pb-sidebar-foot">
-              <button className="pb-btn" onClick={reset}>← Ganti Template</button>
+              <button className="pb-btn" onClick={() => setStage('capture-method')}>← Ganti Metode</button>
             </div>
           </aside>
         </div>
       )}
 
-      {/* ══ STAGE 3: PREVIEW ══ */}
-      {stage === 'preview' && selected && (
-        <div className="pb-preview-layout">
-          <div className="pb-preview-main">
-            <h2 className="pb-preview-title">Review <span>foto kamu</span></h2>
-            <p className="pb-preview-sub">Hover untuk retake. Kalau sudah oke, klik Proses!</p>
-            <div className="pb-preview-grid">
-              {photos.map((photo, i) => (
-                <div key={i} className="pb-preview-card">
-                  <img className="pb-preview-img" src={photo.dataUrl} alt={`Foto ${i + 1}`} />
-                  <div className="pb-preview-num">{i + 1}</div>
-                  <div className="pb-preview-ov">
-                    <button className="pb-retake-btn" onClick={() => retake(photo.slotIndex)}>🔄 Retake</button>
+      {/* ══ STAGE 2B: UPLOAD CAPTURE ══ */}
+      {stage === 'upload-capture' && selected && (
+        <div className="pb-upload-layout">
+          <div className="pb-upload-main">
+            <h2 className="pb-upload-title">Upload <span style={{ color: 'var(--pb-blue2)' }}>foto kamu</span></h2>
+            <p className="pb-upload-sub">Klik slot di bawah untuk memilih foto dari galeri kamu • {photos.length}/{selected.photoCount} foto</p>
+            <div className="pb-upload-grid" style={{ gridTemplateColumns: `repeat(${Math.min(selected.photoCount, 3)}, 1fr)` }}>
+              {Array.from({ length: selected.photoCount }).map((_, i) => {
+                const photo = photos.find(p => p.slotIndex === i);
+                return (
+                  <div
+                    key={i}
+                    className={`pb-upload-slot ${photo ? 'filled' : ''}`}
+                    onClick={() => handleUploadClick(i)}
+                  >
+                    {photo ? (
+                      <>
+                        <img src={photo.dataUrl} alt={`Foto ${i + 1}`} />
+                        <div className="pb-slot-done-badge">✓</div>
+                        <div className="pb-upload-slot-overlay">🔄 Ganti</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="pb-upload-slot-ico">＋</div>
+                        <div className="pb-upload-slot-num">Foto {i + 1}</div>
+                      </>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+            {photos.length >= selected.photoCount && (
+              <button
+                className="pb-btn pb-btn-primary"
+                style={{ maxWidth: 300 }}
+                onClick={() => setStage('editing')}
+              >
+                ✏️ Lanjut ke Editing →
+              </button>
+            )}
+          </div>
+
+          {/* Sidebar */}
+          <aside className="pb-sidebar">
+            <div className="pb-sidebar-head">
+              <div className="pb-sidebar-tname">{selected.name}</div>
+              <p className="pb-sidebar-meta">{photos.length}/{selected.photoCount} foto uploaded</p>
+            </div>
+            <div style={{ padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--pb-bdr2)' }}>
+              <div style={{ width: '100%', borderRadius: 10, overflow: 'hidden', background: 'repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px', border: '1px solid var(--pb-bdr)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <canvas ref={liveCanvasRef} style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 320 }} />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--pb-text3)', textAlign: 'center' }}>Preview terupdate tiap foto diupload ↑</div>
+            </div>
+            <div className="pb-steps-list">
+              {Array.from({ length: selected.photoCount }).map((_, i) => {
+                const cap = photos.find(p => p.slotIndex === i);
+                const st = cap ? 'done' : 'pending';
+                return (
+                  <div key={i} className={`pb-step ${st}`}>
+                    <div className="pb-step-num">{st === 'done' ? '✓' : i + 1}</div>
+                    <div className="pb-step-thumb">
+                      {cap ? <img src={cap.dataUrl} alt="" style={{ transform: 'none' }} /> : '🖼️'}
+                    </div>
+                    <div>
+                      <div className="pb-step-lbl">Foto {i + 1}</div>
+                      <div className="pb-step-status">{st === 'done' ? '✓ Uploaded' : 'Belum diupload'}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="pb-sidebar-foot">
+              <button className="pb-btn" onClick={() => setStage('capture-method')}>← Ganti Metode</button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ══ STAGE 3: EDITING (drag to pan) ══ */}
+      {stage === 'editing' && selected && (
+        <div className="pb-edit-layout">
+          <div className="pb-edit-main">
+            <div className="pb-edit-header">
+              <h2>Atur <span>posisi foto</span></h2>
+              <p>Drag foto di setiap slot untuk mengatur posisi yang kamu mau. Kalau sudah oke, klik Proses!</p>
+            </div>
+
+            <div className="pb-edit-grid">
+              {photos.map((photo, idx) => {
+                const slot = selected.slots[photo.slotIndex];
+                if (!slot) return null;
+                const { w, h } = getSlotDisplay(slot);
+                return (
+                  <div key={idx} className="pb-edit-card">
+                    <div className="pb-edit-card-label">Foto {photo.slotIndex + 1}</div>
+                    <DraggableSlot
+                      photo={photo}
+                      slot={slot}
+                      displayW={w}
+                      displayH={h}
+                      mirror={captureMethod === 'camera'}
+                      onOffsetChange={(ox, oy) => updateOffset(photo.slotIndex, ox, oy)}
+                    />
+                    <div className="pb-edit-actions">
+                      <button onClick={() => updateOffset(photo.slotIndex, 0, 0)}>↺ Reset</button>
+                      <button onClick={() => retake(photo.slotIndex)}>🔄 Retake</button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <aside className="pb-preview-side">
-            <div className="pb-side-title">Preview Hasil</div>
-            <div className="pb-mini-frame">
+          <aside className="pb-edit-side">
+            <div style={{ fontFamily: 'var(--pbf-d)', fontSize: 15, fontWeight: 800, color: 'var(--pb-text)' }}>
+              Preview Hasil
+            </div>
+            <div className="pb-edit-preview-wrap">
               <canvas ref={liveCanvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
             </div>
-            <p className="pb-info-text">
-              {photos.length}/{selected.photoCount} foto siap. Foto akan di-fit otomatis ke setiap slot.
+            <p style={{ fontSize: 12, color: 'var(--pb-text2)', lineHeight: 1.6, margin: 0 }}>
+              Preview update otomatis saat kamu geser foto. Hasil akhir sesuai posisi ini.
             </p>
-            <button className="pb-btn pb-btn-primary"
-              onClick={() => generateComposite(photos)}
-              disabled={photos.length < selected.photoCount}>
+            <button
+              className="pb-btn pb-btn-primary"
+              onClick={generateComposite}
+              disabled={photos.length < selected.photoCount}
+            >
               🎨 Proses Foto!
             </button>
             <button className="pb-btn" onClick={reset}>Mulai Ulang</button>
@@ -1220,7 +1588,8 @@ export function PhotoboxPage() {
             <div className="pb-divider" />
 
             <button className="pb-action-row" onClick={() => {
-              setPhotos([]); setSlotIdx(0); setFinalImg(null); setSaved(false); setStage('camera-capture');
+              setPhotos([]); setSlotIdx(0); setFinalImg(null); setSaved(false);
+              setStage(captureMethod === 'camera' ? 'camera-capture' : 'upload-capture');
             }}>
               <div className="pb-action-ico">📸</div>
               <div>
