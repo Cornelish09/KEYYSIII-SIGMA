@@ -23,7 +23,7 @@ export function Letter({
 
 I don't think u realize the weight u carry in people's lives. The way u make everyone feel seen without even trying. Cara kamu dengerin dengan tulus, bukan cuma menunggu giliran bicara. Or just how ur existence alone somehow makes difficult moments more bearable.
 
-So here's the thing. If u're free one night, i'd really love to spend some time with u nayyy.. Maybe we could head to tunjungan plaza, dinner, walk around, see where the night takes us. Nothing complicated, just... us, good energy, and whatever feels right in the moment. I'm not trying to impress u or prove anything here. I just think u deserve to feel appreciated, dan aku pengen jadi orang yang nunjukin itu. No expectations, no pressure.. just genuine intention to make u feel as special as u actually are.
+So here's the thing. If u're free one night, i'd really love to spend some time with u nayyy.. Maybe we could head to royal plaza, dinner, walk around, see where the night takes us. Nothing complicated, just... us, good energy, and whatever feels right in the moment. I'm not trying to impress u or prove anything here. I just think u deserve to feel appreciated, dan aku pengen jadi orang yang nunjukin itu. No expectations, no pressure.. just genuine intention to make u feel as special as u actually are.
 
 Semua ini? Ini cuma caraku untuk bilang aku melihat kamu, aku menghargai kamu, dan aku pengen kamu tau itu. So kalau kamu mau, let me know. And if u need time to think about it, that's completely okay too.
 
