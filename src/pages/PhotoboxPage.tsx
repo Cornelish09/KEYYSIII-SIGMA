@@ -1055,7 +1055,7 @@ export function PhotoboxPage() {
               slot.width * previewScale, slot.height * previewScale,
               // offsets are stored in full-canvas space, scale down for preview
               photo.offsetX * previewScale, photo.offsetY * previewScale,
-              captureMethod === 'camera',
+              false, // webcam mirrored={false} so screenshot is already natural — no extra flip needed
               photo.scale ?? 1
             );
             res();
@@ -1315,7 +1315,7 @@ export function PhotoboxPage() {
         img.onload = () => {
           // offsets are stored in full-canvas space already
           drawWithPan(ctx, img, slot.x, slot.y, slot.width, slot.height,
-            photo.offsetX, photo.offsetY, captureMethod === 'camera', photo.scale ?? 1);
+            photo.offsetX, photo.offsetY, false, photo.scale ?? 1);
           res();
         };
         img.onerror = () => res();
@@ -1701,7 +1701,7 @@ export function PhotoboxPage() {
                       slot={slot}
                       displayW={w}
                       displayH={h}
-                      mirror={captureMethod === 'camera'}
+                      mirror={false}
                       displayOX={photo.offsetX * displayScale}
                       displayOY={photo.offsetY * displayScale}
                       onOffsetChange={(dox, doy) => {
