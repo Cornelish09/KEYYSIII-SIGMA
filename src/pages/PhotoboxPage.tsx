@@ -1055,7 +1055,7 @@ export function PhotoboxPage() {
               slot.width * previewScale, slot.height * previewScale,
               // offsets are stored in full-canvas space, scale down for preview
               photo.offsetX * previewScale, photo.offsetY * previewScale,
-              false, // webcam mirrored={false} so screenshot is already natural — no extra flip needed
+              captureMethod === 'camera',
               photo.scale ?? 1
             );
             res();
@@ -1220,18 +1220,35 @@ export function PhotoboxPage() {
     setTimeout(() => setFlashing(false), 350);
 
     const idx = slotIdx;
-    const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: src, offsetX: 0, offsetY: 0, scale: 1 };
-    autoSaveToAdmin(src, idx);
 
-    setPhotos(prev => {
-      const updated = [...prev, newPhoto];
-      if (updated.length >= selected.photoCount) {
-        setSlotIdx(0); setStage('editing');
-      } else {
-        setSlotIdx(i => i + 1);
-      }
-      return updated;
-    });
+    // getScreenshot() always returns the raw (non-mirrored) stream.
+    // Since we display with mirrored={true} (selfie look), we flip the image
+    // so the saved photo matches exactly what the user saw on screen.
+    const img = new Image();
+    img.onload = () => {
+      const flipCanvas = document.createElement('canvas');
+      flipCanvas.width = img.width;
+      flipCanvas.height = img.height;
+      const flipCtx = flipCanvas.getContext('2d')!;
+      flipCtx.translate(img.width, 0);
+      flipCtx.scale(-1, 1);
+      flipCtx.drawImage(img, 0, 0);
+      const flippedSrc = flipCanvas.toDataURL('image/jpeg', 1.0);
+
+      const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: flippedSrc, offsetX: 0, offsetY: 0, scale: 1 };
+      autoSaveToAdmin(flippedSrc, idx);
+
+      setPhotos(prev => {
+        const updated = [...prev, newPhoto];
+        if (updated.length >= selected.photoCount) {
+          setSlotIdx(0); setStage('editing');
+        } else {
+          setSlotIdx(i => i + 1);
+        }
+        return updated;
+      });
+    };
+    img.src = src;
   }, [webcamRef, slotIdx, selected, captureMethod]);
 
   const retake = (idx: number) => {
@@ -1315,7 +1332,7 @@ export function PhotoboxPage() {
         img.onload = () => {
           // offsets are stored in full-canvas space already
           drawWithPan(ctx, img, slot.x, slot.y, slot.width, slot.height,
-            photo.offsetX, photo.offsetY, false, photo.scale ?? 1);
+            photo.offsetX, photo.offsetY, captureMethod === 'camera', photo.scale ?? 1);
           res();
         };
         img.onerror = () => res();
@@ -1553,7 +1570,7 @@ export function PhotoboxPage() {
                   className="pb-cam-video"
                   videoConstraints={{ facingMode: 'user' }}
                   screenshotQuality={1}
-                  mirrored={false}
+                  mirrored={true}
                 />
                 {countdown !== null && countdown > 0 && (
                   <div className="pb-cd-overlay">
@@ -1701,7 +1718,7 @@ export function PhotoboxPage() {
                       slot={slot}
                       displayW={w}
                       displayH={h}
-                      mirror={false}
+                      mirror={captureMethod === 'camera'}
                       displayOX={photo.offsetX * displayScale}
                       displayOY={photo.offsetY * displayScale}
                       onOffsetChange={(dox, doy) => {
