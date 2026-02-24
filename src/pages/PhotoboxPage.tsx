@@ -641,8 +641,14 @@ const CSS = `
   .pb-cam-inner {
     position: relative; overflow: hidden; width: 100%; height: 100%;
   }
+  /* Mirror only the live display wrapper for selfie-preview look.
+     Webcam mirrored=false so getScreenshot() gives raw unflipped stream.
+     We manually flip in capture() to match exactly what user sees here. */
+  .pb-cam-selfie-wrap {
+    width: 100%; height: 100%; transform: scaleX(-1); position: relative;
+  }
   .pb-cam-video {
-    width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1);
+    width: 100%; height: 100%; object-fit: cover; display: block;
   }
   .pb-cd-overlay {
     position: absolute; inset: 0; z-index: 30;
@@ -1217,6 +1223,9 @@ export function PhotoboxPage() {
 
   const capture = useCallback(() => {
     if (!webcamRef.current || !selected) return;
+    // mirrored={false} → getScreenshot() returns the RAW non-mirrored stream.
+    // Live display is flipped by CSS scaleX(-1) on the wrapper div (selfie look).
+    // We manually flip here to make the stored photo match exactly what user saw.
     const src = webcamRef.current.getScreenshot();
     if (!src) return;
 
@@ -1224,19 +1233,15 @@ export function PhotoboxPage() {
     setTimeout(() => setFlashing(false), 350);
 
     const idx = slotIdx;
-
-    // getScreenshot() always returns the raw (non-mirrored) stream.
-    // Since we display with mirrored={true} (selfie look), we flip the image
-    // so the saved photo matches exactly what the user saw on screen.
     const img = new Image();
     img.onload = () => {
       const flipCanvas = document.createElement('canvas');
       flipCanvas.width = img.width;
       flipCanvas.height = img.height;
-      const flipCtx = flipCanvas.getContext('2d')!;
-      flipCtx.translate(img.width, 0);
-      flipCtx.scale(-1, 1);
-      flipCtx.drawImage(img, 0, 0);
+      const fctx = flipCanvas.getContext('2d')!;
+      fctx.translate(img.width, 0);
+      fctx.scale(-1, 1);
+      fctx.drawImage(img, 0, 0);
       const flippedSrc = flipCanvas.toDataURL('image/jpeg', 1.0);
 
       const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: flippedSrc, offsetX: 0, offsetY: 0, scale: 1 };
@@ -1567,15 +1572,18 @@ export function PhotoboxPage() {
 
             <div className="pb-cam-viewport">
               <div className="pb-cam-inner">
-                <Webcam
-                  ref={webcamRef}
-                  audio={false}
-                  screenshotFormat="image/jpeg"
-                  className="pb-cam-video"
-                  videoConstraints={{ facingMode: 'user' }}
-                  screenshotQuality={1}
-                  mirrored={true}
-                />
+                {/* pb-cam-selfie-wrap flips visually ONLY — scaleX(-1) CSS only affects display */}
+                <div className="pb-cam-selfie-wrap">
+                  <Webcam
+                    ref={webcamRef}
+                    audio={false}
+                    screenshotFormat="image/jpeg"
+                    className="pb-cam-video"
+                    videoConstraints={{ facingMode: 'user' }}
+                    screenshotQuality={1}
+                    mirrored={false}
+                  />
+                </div>
                 {countdown !== null && countdown > 0 && (
                   <div className="pb-cd-overlay">
                     <CountdownRing value={countdown} max={timerDur} />
