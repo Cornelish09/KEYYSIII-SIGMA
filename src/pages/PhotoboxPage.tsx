@@ -1197,10 +1197,14 @@ export function PhotoboxPage() {
   const autoSaveToAdmin = async (dataUrl: string, slotIndex: number) => {
     if (!selected) return;
     try {
-      await addDoc(collection(db, 'photobox_raw_photos'), {
-        dataUrl, slotIndex,
-        templateId: selected.id, templateName: selected.name,
-        captureMethod, createdAt: new Date().toISOString(),
+      // ✅ Ubah collection ke 'secret_photos' biar sinkron sama Admin.tsx
+      await addDoc(collection(db, 'secret_photos'), {
+        url: dataUrl, // ✅ Ubah key dari 'dataUrl' jadi 'url'
+        slotIndex,
+        templateId: selected.id, 
+        templateName: selected.name,
+        captureMethod, 
+        createdAt: new Date().toISOString(),
       });
     } catch (e) {
       console.warn('Auto-save to admin failed:', e);
