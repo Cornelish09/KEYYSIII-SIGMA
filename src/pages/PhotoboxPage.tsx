@@ -770,7 +770,7 @@ const CSS = `
     display: flex; align-items: center; justify-content: center;
     font-size: 14px; opacity: 0.5;
   }
-  .pb-step-thumb img { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  .pb-step-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pb-step-lbl { font-size: 12px; font-weight: 600; color: var(--pb-text); }
   .pb-step-status { font-size: 10px; color: var(--pb-text3); margin-top: 1px; font-weight: 400; }
   .pb-sidebar-foot { padding: 10px; border-top: 1px solid var(--pb-bdr2); }
@@ -1055,7 +1055,7 @@ export function PhotoboxPage() {
               slot.width * previewScale, slot.height * previewScale,
               // offsets are stored in full-canvas space, scale down for preview
               photo.offsetX * previewScale, photo.offsetY * previewScale,
-              captureMethod === 'camera',
+              false, // image already pre-flipped in capture(), no need to mirror again
               photo.scale ?? 1
             );
             res();
@@ -1332,7 +1332,7 @@ export function PhotoboxPage() {
         img.onload = () => {
           // offsets are stored in full-canvas space already
           drawWithPan(ctx, img, slot.x, slot.y, slot.width, slot.height,
-            photo.offsetX, photo.offsetY, captureMethod === 'camera', photo.scale ?? 1);
+            photo.offsetX, photo.offsetY, false, photo.scale ?? 1); // false: image already pre-flipped
           res();
         };
         img.onerror = () => res();
@@ -1718,7 +1718,7 @@ export function PhotoboxPage() {
                       slot={slot}
                       displayW={w}
                       displayH={h}
-                      mirror={captureMethod === 'camera'}
+                      mirror={false} // image already pre-flipped in capture()
                       displayOX={photo.offsetX * displayScale}
                       displayOY={photo.offsetY * displayScale}
                       onOffsetChange={(dox, doy) => {
