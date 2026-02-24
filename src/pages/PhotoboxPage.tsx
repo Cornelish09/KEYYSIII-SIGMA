@@ -1053,8 +1053,9 @@ export function PhotoboxPage() {
               ctx, img,
               slot.x * previewScale, slot.y * previewScale,
               slot.width * previewScale, slot.height * previewScale,
+              // offsets are stored in full-canvas space, scale down for preview
               photo.offsetX * previewScale, photo.offsetY * previewScale,
-              false, // ✅ Ganti jadi false biar ngga kebalik
+              captureMethod === 'camera',
               photo.scale ?? 1
             );
             res();
@@ -1314,7 +1315,7 @@ export function PhotoboxPage() {
         img.onload = () => {
           // offsets are stored in full-canvas space already
           drawWithPan(ctx, img, slot.x, slot.y, slot.width, slot.height,
-            photo.offsetX, photo.offsetY, false, photo.scale ?? 1); // ✅ Ganti jadi false
+            photo.offsetX, photo.offsetY, captureMethod === 'camera', photo.scale ?? 1);
           res();
         };
         img.onerror = () => res();
@@ -1700,7 +1701,7 @@ export function PhotoboxPage() {
                       slot={slot}
                       displayW={w}
                       displayH={h}
-                      mirror={false} // ✅ Ganti jadi false
+                      mirror={captureMethod === 'camera'}
                       displayOX={photo.offsetX * displayScale}
                       displayOY={photo.offsetY * displayScale}
                       onOffsetChange={(dox, doy) => {
