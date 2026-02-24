@@ -294,6 +294,39 @@ export function Admin() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, [activeTab]);
 
+  // --- DELETE PHOTO FUNCTION ---
+  const handleDeletePhoto = async (photo: UserPhoto) => {
+    const confirmed = confirm("Hapus foto ini dari database? Tindakan ini tidak bisa dibatalkan.");
+    if (!confirmed) return;
+
+    try {
+      const { doc, deleteDoc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "secret_photos", photo.id));
+
+      // Kalau foto disimpan di Firebase Storage, hapus juga filenya
+      if (photo.url.includes("firebasestorage.googleapis.com")) {
+        try {
+          const { ref: storageRef, deleteObject } = await import("firebase/storage");
+          // Extract path dari URL
+          const urlObj = new URL(photo.url);
+          const pathMatch = urlObj.pathname.match(/\/o\/(.+?)(\?|$)/);
+          if (pathMatch) {
+            const filePath = decodeURIComponent(pathMatch[1]);
+            const fileRef = storageRef(storage, filePath);
+            await deleteObject(fileRef);
+          }
+        } catch (storageErr) {
+          console.warn("Gagal hapus file dari Storage (mungkin sudah terhapus):", storageErr);
+        }
+      }
+
+      logEvent("admin_delete_photo", { id: photo.id });
+    } catch (e) {
+      console.error("Gagal hapus foto:", e);
+      alert("Gagal hapus foto. Cek koneksi internet kamu.");
+    }
+  };
+
   // --- TEMPLATE FUNCTIONS ---
   const uploadTemplateToCloudinary = async (file: File): Promise<string> => {
     const formData = new FormData();
@@ -1417,21 +1450,44 @@ export function Admin() {
                     <div style={{ fontSize: '11px', color: '#94a3b8' }}>
                       📅 {new Date(photo.createdAt).toLocaleString('id-ID')}
                     </div>
-                    <a 
-                      href={photo.url} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      style={{ 
-                        color: '#3b82f6', 
-                        fontSize: '12px', 
-                        textDecoration: 'none', 
-                        display: 'block', 
-                        marginTop: '8px', 
-                        fontWeight: 'bold' 
-                      }}
-                    >
-                      Buka Full Image ↗
-                    </a>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+                      <a 
+                        href={photo.url} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        style={{ 
+                          color: '#3b82f6', 
+                          fontSize: '12px', 
+                          textDecoration: 'none', 
+                          fontWeight: 'bold' 
+                        }}
+                      >
+                        Buka Full Image ↗
+                      </a>
+                      <button
+                        onClick={() => handleDeletePhoto(photo)}
+                        title="Hapus foto ini"
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '6px',
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          padding: '4px 8px',
+                          lineHeight: 1,
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239, 68, 68, 0.3)';
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239, 68, 68, 0.15)';
+                        }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
