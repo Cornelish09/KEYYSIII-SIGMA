@@ -816,24 +816,28 @@ const CSS = `
 
   /* ── EDITING STAGE ── */
   .pb-edit-layout {
-    flex: 1; display: grid; grid-template-columns: 1fr 310px; overflow: hidden;
+    flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden;
   }
   .pb-edit-main {
-    padding: 28px 32px; overflow-y: auto; background: var(--pb-bg2);
-    display: flex; flex-direction: column; gap: 20px;
+    padding: 24px 28px; overflow-y: auto; background: var(--pb-bg2);
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .pb-edit-header {
+    text-align: center;
   }
   .pb-edit-header h2 {
     font-family: var(--pbf-d); font-size: 26px; font-weight: 400;
     color: var(--pb-text); margin: 0 0 4px; letter-spacing: -0.2px;
+    text-align: center;
   }
   .pb-edit-header h2 em {
     font-style: italic;
     background: linear-gradient(135deg, var(--pb-accent2), var(--pb-purple2));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   }
-  .pb-edit-header p { font-size: 13px; color: var(--pb-text2); margin: 0; font-weight: 400; }
+  .pb-edit-header p { font-size: 13px; color: var(--pb-text2); margin: 0; font-weight: 400; text-align: center; }
   .pb-edit-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px;
   }
   .pb-edit-card {
     background: var(--pb-surf); border-radius: 10px; overflow: hidden;
@@ -854,22 +858,22 @@ const CSS = `
   .pb-edit-actions button:hover { border-color: var(--pb-accent); color: var(--pb-accent2); }
   .pb-edit-side {
     background: var(--pb-surf); border-left: 1px solid var(--pb-bdr);
-    padding: 20px 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+    padding: 20px 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;
   }
   .pb-edit-side-title {
-    font-family: var(--pbf-d); font-size: 15px; font-weight: 400;
-    color: var(--pb-text); letter-spacing: 0.2px;
+    font-family: var(--pbf-d); font-size: 17px; font-weight: 400;
+    color: var(--pb-text); letter-spacing: 0.2px; text-align: center; flex-shrink: 0;
   }
   .pb-edit-preview-wrap {
     width: 100%; border-radius: 9px; overflow: hidden;
     background: repeating-conic-gradient(rgba(255,255,255,0.025) 0% 25%, transparent 0% 50%) 0 0 / 8px 8px;
     border: 1px solid var(--pb-bdr);
     display: flex; align-items: center; justify-content: center;
-    min-height: 60px; max-height: 280px;
+    flex: 1; min-height: 0;
   }
   .pb-edit-preview-wrap canvas {
-    max-width: 100%; max-height: 280px; width: auto; height: auto;
-    display: block; cursor: grab;
+    max-width: 100%; max-height: 100%; width: auto; height: auto;
+    display: block; cursor: grab; object-fit: contain;
   }
   .pb-edit-preview-wrap canvas:active { cursor: grabbing; }
 
@@ -1744,20 +1748,21 @@ export function PhotoboxPage() {
                 onPointerDown={handlePreviewPointerDown}
                 onPointerMove={handlePreviewPointerMove}
                 onPointerUp={handlePreviewPointerUp}
-                style={{ maxWidth: '100%', maxHeight: 280, width: 'auto', height: 'auto', display: 'block', touchAction: 'none' }}
+                style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', display: 'block', touchAction: 'none' }}
               />
             </div>
-            <p style={{ fontSize: 11, color: 'var(--pb-text3)', lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontSize: 11, color: 'var(--pb-text3)', lineHeight: 1.6, margin: 0, textAlign: 'center', flexShrink: 0 }}>
               Drag di preview untuk atur posisi foto. Hasil akhir sesuai tampilan ini.
             </p>
             <button
               className="pb-btn pb-btn-primary"
+              style={{ flexShrink: 0 }}
               onClick={generateAndDownload}
               disabled={photos.length < selected.photoCount}
             >
               ↓ Download di sini
             </button>
-            <button className="pb-btn" onClick={reset}>Mulai Ulang</button>
+            <button className="pb-btn" style={{ flexShrink: 0 }} onClick={reset}>Mulai Ulang</button>
           </aside>
         </div>
       )}
