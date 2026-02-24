@@ -351,6 +351,23 @@ export function Final({ cfg, state }: { cfg: ContentConfig; state: AppState }) {
                   <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>{formatDateIndo(reservationDate)}</span>
                 </div>
               </div>
+
+              <div className="rc-info-row" style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', border: 'none', paddingTop: 0 }}>
+                <div className="rc-info-item">
+                  <span className="rc-info-label" style={{ fontSize: '7px' }}>DRESS CODE</span>
+                  <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>
+                    {outfit?.description 
+                      ? outfit.description.split('|').map(s => s.trim()).join(' & ').toUpperCase() 
+                      : "SURPRISE OUTFIT"}
+                  </span>
+                </div>
+                <div className="rc-info-item right" style={{ textAlign: 'right' }}>
+                  <span className="rc-info-label" style={{ fontSize: '7px' }}>STYLE CONCEPT</span>
+                  <span className="rc-info-val" style={{ fontSize: '10px', fontWeight: 'bold' }}>
+                    {outfit?.style ? outfit.style.toUpperCase() : "CASUAL"}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="rc-body">
